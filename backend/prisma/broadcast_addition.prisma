@@ -1,0 +1,60 @@
+
+// Adicionar ao schema.prisma existente (no final do ficheiro)
+
+model Broadcast {
+  id                  String          @id @default(cuid())
+  name                String
+  channel             Channel
+  message             String?
+  templateName        String?
+  langCode            String?
+  templateComponents  String?
+  status              BroadcastStatus @default(DRAFT)
+  totalRecipients     Int             @default(0)
+  sentCount           Int             @default(0)
+  deliveredCount      Int             @default(0)
+  readCount           Int             @default(0)
+  failedCount         Int             @default(0)
+  scheduledAt         DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdById String
+
+  recipients  BroadcastRecipient[]
+
+  @@map("broadcasts")
+}
+
+enum BroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+model BroadcastRecipient {
+  id          String   @id @default(cuid())
+  phone       String
+  status      String   @default("PENDING")
+  externalId  String?
+  error       String?
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  broadcast   Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  broadcastId String
+  contact     Contact?  @relation(fields: [contactId], references: [id])
+  contactId   String?
+
+  @@map("broadcast_recipients")
+}

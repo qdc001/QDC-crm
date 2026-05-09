@@ -1,0 +1,654 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== AUTH & USERS ====================
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  password     String
+  avatar       String?
+  phone        String?
+  role         UserRole @default(AGENT)
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id])
+  workspaceId  String
+
+  assignedLeads    Lead[]       @relation("AssignedLeads")
+  createdLeads     Lead[]       @relation("CreatedLeads")
+  tasks            Task[]
+  messages         Message[]
+  notes            Note[]
+  activities       Activity[]
+  notifications    Notification[]
+  chatbotFlows     ChatbotFlow[]
+  automations      Automation[]
+  pipelines        Pipeline[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  AGENT
+}
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logo        String?
+  timezone    String   @default("Africa/Maputo")
+  currency    String   @default("MZN")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users        User[]
+  pipelines    Pipeline[]
+  contacts     Contact[]
+  leads        Lead[]
+  tags         Tag[]
+  integrations Integration[]
+  automations  Automation[]
+  chatbotFlows ChatbotFlow[]
+  templates    MessageTemplate[]
+  customFields CustomField[]
+  webhooks     Webhook[]
+
+  @@map("workspaces")
+}
+
+// ==================== PIPELINE & LEADS ====================
+
+model Pipeline {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  color       String   @default("#3B82F6")
+  isDefault   Boolean  @default(false)
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdById String
+
+  stages      Stage[]
+  leads       Lead[]
+
+  @@map("pipelines")
+}
+
+model Stage {
+  id          String    @id @default(cuid())
+  name        String
+  color       String    @default("#6B7280")
+  position    Int
+  type        StageType @default(REGULAR)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  pipeline    Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  pipelineId  String
+
+  leads       Lead[]
+
+  @@map("stages")
+}
+
+enum StageType {
+  REGULAR
+  WON
+  LOST
+}
+
+model Lead {
+  id              String     @id @default(cuid())
+  title           String
+  value           Float?
+  currency        String     @default("MZN")
+  status          LeadStatus @default(OPEN)
+  priority        Priority   @default(MEDIUM)
+  source          String?
+  lostReason      String?
+  expectedCloseAt DateTime?
+  closedAt        DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId  String
+  pipeline     Pipeline  @relation(fields: [pipelineId], references: [id])
+  pipelineId   String
+  stage        Stage     @relation(fields: [stageId], references: [id])
+  stageId      String
+  assignedTo   User?     @relation("AssignedLeads", fields: [assignedToId], references: [id])
+  assignedToId String?
+  createdBy    User      @relation("CreatedLeads", fields: [createdById], references: [id])
+  createdById  String
+  contact      Contact?  @relation(fields: [contactId], references: [id])
+  contactId    String?
+
+  tasks        Task[]
+  messages     Message[]
+  notes        Note[]
+  activities   Activity[]
+  tags         TagOnLead[]
+  customValues CustomFieldValue[]
+  files        File[]
+
+  @@map("leads")
+}
+
+enum LeadStatus {
+  OPEN
+  WON
+  LOST
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ==================== CONTACTS ====================
+
+model Contact {
+  id          String      @id @default(cuid())
+  type        ContactType @default(PERSON)
+  firstName   String
+  lastName    String?
+  email       String?
+  phone       String?
+  whatsapp    String?
+  company     String?
+  position    String?
+  website     String?
+  avatar      String?
+  address     String?
+  city        String?
+  country     String?
+  notes       String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  leads        Lead[]
+  messages     Message[]
+  tags         TagOnContact[]
+  customValues CustomFieldValue[]
+
+  @@map("contacts")
+}
+
+enum ContactType {
+  PERSON
+  COMPANY
+}
+
+// ==================== MESSAGING ====================
+
+model Message {
+  id          String        @id @default(cuid())
+  content     String
+  type        MessageType   @default(TEXT)
+  direction   Direction     @default(OUTBOUND)
+  channel     Channel
+  status      MessageStatus @default(SENT)
+  mediaUrl    String?
+  mediaType   String?
+  externalId  String?
+  readAt      DateTime?
+  createdAt   DateTime      @default(now())
+
+  lead        Lead?    @relation(fields: [leadId], references: [id])
+  leadId      String?
+  contact     Contact? @relation(fields: [contactId], references: [id])
+  contactId   String?
+  sentBy      User?    @relation(fields: [sentById], references: [id])
+  sentById    String?
+
+  @@map("messages")
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  LOCATION
+  TEMPLATE
+  INTERACTIVE
+  SYSTEM
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+enum Channel {
+  WHATSAPP
+  EMAIL
+  INSTAGRAM
+  FACEBOOK
+  TELEGRAM
+  WEBCHAT
+  SMS
+  INTERNAL
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// ==================== TASKS ====================
+
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  type        TaskType   @default(CALL)
+  status      TaskStatus @default(PENDING)
+  dueAt       DateTime?
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  lead        Lead?  @relation(fields: [leadId], references: [id])
+  leadId      String?
+  assignedTo  User   @relation(fields: [assignedToId], references: [id])
+  assignedToId String
+
+  @@map("tasks")
+}
+
+enum TaskType {
+  CALL
+  EMAIL
+  MEETING
+  FOLLOW_UP
+  DEMO
+  OTHER
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ==================== NOTES ====================
+
+model Note {
+  id        String   @id @default(cuid())
+  content   String
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lead      Lead?   @relation(fields: [leadId], references: [id])
+  leadId    String?
+  createdBy User    @relation(fields: [createdById], references: [id])
+  createdById String
+
+  @@map("notes")
+}
+
+// ==================== ACTIVITY LOG ====================
+
+model Activity {
+  id          String       @id @default(cuid())
+  type        ActivityType
+  description String
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+
+  lead        Lead?  @relation(fields: [leadId], references: [id])
+  leadId      String?
+  user        User?  @relation(fields: [userId], references: [id])
+  userId      String?
+
+  @@map("activities")
+}
+
+enum ActivityType {
+  LEAD_CREATED
+  LEAD_UPDATED
+  LEAD_MOVED
+  LEAD_WON
+  LEAD_LOST
+  MESSAGE_SENT
+  MESSAGE_RECEIVED
+  TASK_CREATED
+  TASK_COMPLETED
+  NOTE_ADDED
+  FILE_UPLOADED
+  CONTACT_LINKED
+  TAG_ADDED
+  TAG_REMOVED
+  ASSIGNED
+  STAGE_CHANGED
+  VALUE_CHANGED
+}
+
+// ==================== AUTOMATION ====================
+
+model Automation {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  trigger     Json
+  conditions  Json?
+  actions     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdById String
+
+  @@map("automations")
+}
+
+// ==================== CHATBOT ====================
+
+model ChatbotFlow {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  trigger     String
+  nodes       Json
+  edges       Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdById String
+
+  @@map("chatbot_flows")
+}
+
+// ==================== TEMPLATES ====================
+
+model MessageTemplate {
+  id          String          @id @default(cuid())
+  name        String
+  content     String
+  category    TemplateCategory
+  channel     Channel
+  variables   String[]        @default([])
+  isApproved  Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  @@map("message_templates")
+}
+
+enum TemplateCategory {
+  MARKETING
+  UTILITY
+  AUTHENTICATION
+  SERVICE
+}
+
+// ==================== TAGS ====================
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   @default("#6B7280")
+  createdAt DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  leads    TagOnLead[]
+  contacts TagOnContact[]
+
+  @@unique([name, workspaceId])
+  @@map("tags")
+}
+
+model TagOnLead {
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId String
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId  String
+
+  @@id([leadId, tagId])
+  @@map("tags_on_leads")
+}
+
+model TagOnContact {
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contactId String
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId     String
+
+  @@id([contactId, tagId])
+  @@map("tags_on_contacts")
+}
+
+// ==================== CUSTOM FIELDS ====================
+
+model CustomField {
+  id          String          @id @default(cuid())
+  name        String
+  key         String
+  type        CustomFieldType
+  entity      String
+  options     String[]        @default([])
+  isRequired  Boolean         @default(false)
+  position    Int             @default(0)
+  createdAt   DateTime        @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  values      CustomFieldValue[]
+
+  @@unique([key, workspaceId, entity])
+  @@map("custom_fields")
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+  MULTISELECT
+  URL
+  EMAIL
+  PHONE
+}
+
+model CustomFieldValue {
+  id       String @id @default(cuid())
+  value    String
+
+  field     CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  fieldId   String
+  lead      Lead?       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId    String?
+  contact   Contact?    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contactId String?
+
+  @@map("custom_field_values")
+}
+
+// ==================== INTEGRATIONS ====================
+
+model Integration {
+  id          String            @id @default(cuid())
+  type        IntegrationType
+  name        String
+  isActive    Boolean           @default(true)
+  credentials Json
+  settings    Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  @@map("integrations")
+}
+
+enum IntegrationType {
+  WHATSAPP
+  INSTAGRAM
+  FACEBOOK
+  TELEGRAM
+  EMAIL_SMTP
+  EMAIL_IMAP
+  GOOGLE_CALENDAR
+  ZAPIER
+  MAKE
+  WEBHOOK
+}
+
+// ==================== FILES ====================
+
+model File {
+  id        String   @id @default(cuid())
+  name      String
+  url       String
+  size      Int
+  mimeType  String
+  createdAt DateTime @default(now())
+
+  lead      Lead?  @relation(fields: [leadId], references: [id])
+  leadId    String?
+
+  @@map("files")
+}
+
+// ==================== NOTIFICATIONS ====================
+
+model Notification {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  type      String
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  @@map("notifications")
+}
+
+// ==================== WEBHOOKS ====================
+
+model Webhook {
+  id        String   @id @default(cuid())
+  name      String
+  url       String
+  events    String[]
+  secret    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+
+  @@map("webhooks")
+}
+
+// ==================== BROADCASTS ====================
+
+model Broadcast {
+  id                 String          @id @default(cuid())
+  name               String
+  channel            Channel
+  message            String?
+  templateName       String?
+  langCode           String?
+  templateComponents String?
+  status             BroadcastStatus @default(DRAFT)
+  totalRecipients    Int             @default(0)
+  sentCount          Int             @default(0)
+  deliveredCount     Int             @default(0)
+  readCount          Int             @default(0)
+  failedCount        Int             @default(0)
+  scheduledAt        DateTime?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdById String
+
+  recipients  BroadcastRecipient[]
+
+  @@map("broadcasts")
+}
+
+enum BroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+model BroadcastRecipient {
+  id          String    @id @default(cuid())
+  phone       String
+  status      String    @default("PENDING")
+  externalId  String?
+  error       String?
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  broadcast   Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  broadcastId String
+  contact     Contact?  @relation(fields: [contactId], references: [id])
+  contactId   String?
+
+  @@map("broadcast_recipients")
+}

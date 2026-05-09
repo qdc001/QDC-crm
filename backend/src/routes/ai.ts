@@ -1,0 +1,347 @@
+import { Router, Response } from 'express';
+import { PrismaClient } from '@prisma/client';
+import { AuthRequest } from '../middleware/auth';
+import { AppError } from '../middleware/errorHandler';
+
+const router = Router();
+const prisma = new PrismaClient();
+
+const AI_MODEL = 'claude-sonnet-4-20250514';
+const AI_API = 'https://api.anthropic.com/v1/messages';
+
+async function callClaude(systemPrompt: string, userMessage: string, apiKey: string, maxTokens = 1024): Promise<string> {
+  const res = await fetch(AI_API, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || 'Erro na API de IA');
+  }
+
+  const data = await res.json();
+  return data.content[0]?.text || '';
+}
+
+// ── GET lead context helper ───────────────────────────
+async function getLeadContext(leadId: string, workspaceId: string) {
+  return prisma.lead.findFirst({
+    where: { id: leadId, workspaceId },
+    include: {
+      contact: true,
+      stage: true,
+      pipeline: true,
+      assignedTo: { select: { name: true } },
+      notes: { orderBy: { createdAt: 'desc' }, take: 5 },
+      tasks: { orderBy: { createdAt: 'desc' }, take: 5 },
+      messages: { orderBy: { createdAt: 'desc' }, take: 20 },
+      activities: { orderBy: { createdAt: 'desc' }, take: 10 },
+    },
+  });
+}
+
+// ── POST /api/ai/summarize ────────────────────────────
+// Resumo completo do lead
+router.post('/summarize', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { leadId } = req.body;
+    if (!leadId) throw new AppError('leadId é obrigatório', 400);
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+
+    const lead = await getLeadContext(leadId, req.user!.workspaceId);
+    if (!lead) throw new AppError('Lead não encontrado', 404);
+
+    const recentMessages = lead.messages
+      .slice(0, 10)
+      .map((m) => `[${m.direction === 'INBOUND' ? 'Cliente' : 'Agente'} - ${m.channel}]: ${m.content}`)
+      .join('\n');
+
+    const notes = lead.notes.map((n) => `- ${n.content}`).join('\n');
+    const tasks = lead.tasks.map((t) => `- ${t.title} (${t.status}${t.dueAt ? `, prazo: ${new Date(t.dueAt).toLocaleDateString('pt')}` : ''})`).join('\n');
+
+    const summary = await callClaude(
+      `Você é um assistente CRM profissional. Analisa dados de leads e fornece resumos claros e accionáveis em Português de Moçambique. Seja conciso e prático.`,
+      `Cria um resumo executivo deste lead para o gestor de vendas:
+
+LEAD: ${lead.title}
+VALOR: ${lead.value ? `MZN ${lead.value.toLocaleString()}` : 'Não definido'}
+ETAPA: ${lead.stage.name} (pipeline: ${lead.pipeline.name})
+PRIORIDADE: ${lead.priority}
+FONTE: ${lead.source || 'Desconhecida'}
+RESPONSÁVEL: ${lead.assignedTo?.name || 'Não atribuído'}
+CONTACTO: ${lead.contact?.firstName || ''} ${lead.contact?.lastName || ''} ${lead.contact?.company ? `(${lead.contact.company})` : ''}
+
+ÚLTIMAS MENSAGENS:
+${recentMessages || 'Sem mensagens'}
+
+NOTAS:
+${notes || 'Sem notas'}
+
+TAREFAS:
+${tasks || 'Sem tarefas'}
+
+Fornece: 1) Resumo do estado actual (2-3 frases) 2) Próximas acções recomendadas 3) Riscos ou oportunidades identificados`,
+      apiKey,
+      512
+    );
+
+    res.json({ summary });
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/ai/suggest-reply ────────────────────────
+// Sugere resposta para uma mensagem recebida
+router.post('/suggest-reply', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { leadId, lastMessage, tone = 'profissional' } = req.body;
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+
+    const lead = await getLeadContext(leadId, req.user!.workspaceId);
+
+    const context = lead
+      ? `Lead: ${lead.title}, Etapa: ${lead.stage.name}, Contacto: ${lead.contact?.firstName || 'Cliente'}`
+      : 'Contexto do lead não disponível';
+
+    const suggestions = await callClaude(
+      `Você é um assistente de vendas experiente. Sugere respostas para mensagens de clientes. Responde em Português de Moçambique. Tom: ${tone}.`,
+      `${context}
+
+Mensagem do cliente: "${lastMessage}"
+
+Sugere 3 respostas diferentes para esta mensagem. Numera cada uma (1, 2, 3). Cada resposta deve ser directa, profissional e adequada ao contexto de vendas. Separa cada resposta com uma linha em branco.`,
+      apiKey,
+      600
+    );
+
+    // Parse into array
+    const parsed = suggestions
+      .split(/\n\s*\n/)
+      .map((s) => s.replace(/^\d+\.\s*/, '').trim())
+      .filter((s) => s.length > 10)
+      .slice(0, 3);
+
+    res.json({ suggestions: parsed });
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/ai/suggest-fields ───────────────────────
+// Sugere valores para campos em branco com base nas mensagens
+router.post('/suggest-fields', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { leadId } = req.body;
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+
+    const lead = await getLeadContext(leadId, req.user!.workspaceId);
+    if (!lead) throw new AppError('Lead não encontrado', 404);
+
+    const messages = lead.messages
+      .map((m) => `[${m.direction === 'INBOUND' ? 'Cliente' : 'Agente'}]: ${m.content}`)
+      .join('\n');
+
+    const result = await callClaude(
+      `Analisa conversas de vendas e extrai informações sobre o cliente. Responde APENAS em JSON válido.`,
+      `Com base nesta conversa, extrai informações do cliente que possam estar em falta no CRM.
+
+Conversa:
+${messages || 'Sem mensagens disponíveis'}
+
+Dados actuais:
+- Nome: ${lead.contact?.firstName || 'Desconhecido'}
+- Email: ${lead.contact?.email || 'Em falta'}
+- Telefone: ${lead.contact?.phone || 'Em falta'}
+- Empresa: ${lead.contact?.company || 'Em falta'}
+- Cargo: ${lead.contact?.position || 'Em falta'}
+- Valor do lead: ${lead.value || 'Em falta'}
+- Fonte: ${lead.source || 'Em falta'}
+
+Responde APENAS com JSON no formato:
+{"suggestions": [{"field": "nome_do_campo", "value": "valor_sugerido", "confidence": 0.9, "reason": "porque extraí este valor"}]}
+
+Só inclui campos com confiança > 0.6. Campos possíveis: email, phone, company, position, value, source, expectedCloseAt`,
+      apiKey,
+      400
+    );
+
+    try {
+      const clean = result.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(clean);
+      res.json(parsed);
+    } catch {
+      res.json({ suggestions: [] });
+    }
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/ai/sentiment ────────────────────────────
+// Analisa sentimento de uma mensagem
+router.post('/sentiment', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { message } = req.body;
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+
+    const result = await callClaude(
+      `Analisa o sentimento de mensagens de clientes. Responde APENAS em JSON.`,
+      `Analisa o sentimento desta mensagem de cliente: "${message}"
+
+Responde APENAS com JSON:
+{"sentiment": "positivo|negativo|neutro|urgente|frustrado|satisfeito", "score": 0.85, "emoji": "😊", "guidance": "sugestão curta de como responder"}`,
+      apiKey,
+      150
+    );
+
+    try {
+      const parsed = JSON.parse(result.replace(/```json|```/g, '').trim());
+      res.json(parsed);
+    } catch {
+      res.json({ sentiment: 'neutro', score: 0.5, emoji: '😐', guidance: 'Responda de forma profissional' });
+    }
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/ai/improve-text ─────────────────────────
+// Melhora ou reescreve um texto
+router.post('/improve-text', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { text, action = 'improve', tone = 'profissional' } = req.body;
+    // action: 'improve' | 'formal' | 'casual' | 'shorter' | 'correct-grammar'
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+
+    const actions: Record<string, string> = {
+      improve: `Melhora este texto mantendo o significado. Tom: ${tone}.`,
+      formal: 'Reescreve este texto de forma mais formal e profissional.',
+      casual: 'Reescreve este texto de forma mais casual e amigável.',
+      shorter: 'Reescreve este texto de forma mais concisa, mantendo os pontos principais.',
+      'correct-grammar': 'Corrige apenas a gramática e ortografia, sem alterar o estilo.',
+    };
+
+    const instruction = actions[action] || actions.improve;
+
+    const result = await callClaude(
+      `Você é um editor de texto profissional. Reescreve textos em Português de Moçambique. Responde APENAS com o texto melhorado, sem explicações.`,
+      `${instruction}\n\nTexto original: "${text}"`,
+      apiKey,
+      300
+    );
+
+    res.json({ result: result.trim() });
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/ai/chat ─────────────────────────────────
+// Chat com o Copilot sobre qualquer questão do workspace
+router.post('/chat', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { message, history = [] } = req.body;
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+
+    const workspaceStats = await Promise.all([
+      prisma.lead.count({ where: { workspaceId: req.user!.workspaceId, status: 'OPEN' } }),
+      prisma.lead.count({ where: { workspaceId: req.user!.workspaceId, status: 'WON' } }),
+      prisma.contact.count({ where: { workspaceId: req.user!.workspaceId } }),
+      prisma.task.count({ where: { assignedTo: { workspaceId: req.user!.workspaceId }, status: 'PENDING' } }),
+    ]);
+
+    const systemPrompt = `Você é o Copilot, assistente IA integrado no CRM KommoCRM. Ajuda os utilizadores a gerir o seu negócio e responder perguntas sobre o sistema.
+
+Dados actuais do workspace:
+- Leads abertos: ${workspaceStats[0]}
+- Leads ganhos: ${workspaceStats[1]}
+- Contactos: ${workspaceStats[2]}
+- Tarefas pendentes: ${workspaceStats[3]}
+
+Responde em Português de Moçambique. Seja conciso, prático e amigável.`;
+
+    const res2 = await fetch(AI_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [
+          ...history.map((h: any) => ({ role: h.role, content: h.content })),
+          { role: 'user', content: message },
+        ],
+      }),
+    });
+
+    if (!res2.ok) throw new AppError('Erro na API de IA', 500);
+    const data = await res2.json();
+    res.json({ reply: data.content[0]?.text || '' });
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/ai/agent-reply ──────────────────────────
+// Resposta automática do agente IA para um lead
+router.post('/agent-reply', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { leadId, incomingMessage } = req.body;
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+
+    const lead = await getLeadContext(leadId, req.user!.workspaceId);
+    if (!lead) throw new AppError('Lead não encontrado', 404);
+
+    const workspace = await prisma.workspace.findUnique({ where: { id: req.user!.workspaceId } });
+
+    const history = lead.messages
+      .reverse()
+      .slice(-10)
+      .map((m) => ({
+        role: m.direction === 'INBOUND' ? 'user' : 'assistant',
+        content: m.content,
+      }));
+
+    const res2 = await fetch(AI_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_tokens: 300,
+        system: `Você é o assistente virtual de ${workspace?.name}. Responde a clientes potenciais de forma profissional, amigável e concisa. Qualifica leads e agenda reuniões quando adequado. Responde em Português de Moçambique. Não revelar que é IA a menos que perguntado directamente.`,
+        messages: [
+          ...history,
+          { role: 'user', content: incomingMessage },
+        ],
+      }),
+    });
+
+    if (!res2.ok) throw new AppError('Erro no agente IA', 500);
+    const data = await res2.json();
+    res.json({ reply: data.content[0]?.text || '' });
+  } catch (e) { next(e); }
+});
+
+export default router;

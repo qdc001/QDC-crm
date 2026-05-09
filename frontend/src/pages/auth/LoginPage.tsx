@@ -1,0 +1,126 @@
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, Loader2, GitBranch } from 'lucide-react';
+import { useAuthStore } from '../../store';
+import api from '../../lib/api';
+import toast from 'react-hot-toast';
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { login } = useAuthStore();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const { data } = await api.post('/auth/login', { email, password });
+      login(data.token, data.user, data.workspace);
+      toast.success(`Bem-vindo, ${data.user.name}!`);
+      navigate('/');
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Erro ao iniciar sessão');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex" style={{ background: 'var(--surface-2)' }}>
+      {/* Left - Branding */}
+      <div className="hidden lg:flex flex-col justify-between w-1/2 p-12" style={{ background: 'var(--sidebar-bg)' }}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary)' }}>
+            <GitBranch size={20} className="text-white" />
+          </div>
+          <span className="text-white text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>KommoCRM</span>
+        </div>
+
+        <div>
+          <h2 className="text-4xl font-bold text-white mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', lineHeight: 1.2 }}>
+            Gerir clientes<br />nunca foi tão fácil
+          </h2>
+          <p className="text-gray-400 text-lg mb-8">CRM completo com pipeline de vendas, caixa de entrada unificada e automações inteligentes.</p>
+
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { label: 'Leads activos', value: '12.4k' },
+              { label: 'Receita gerada', value: 'MZN 2.8M' },
+              { label: 'Integracções', value: '20+' },
+              { label: 'Uptime', value: '99.9%' },
+            ].map((stat) => (
+              <div key={stat.label} className="p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                <p className="text-2xl font-bold text-white" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>{stat.value}</p>
+                <p className="text-sm text-gray-400">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-gray-600 text-sm">© 2025 KommoCRM. Todos os direitos reservados.</p>
+      </div>
+
+      {/* Right - Form */}
+      <div className="flex flex-1 items-center justify-center p-8">
+        <div className="w-full max-w-md">
+          <div className="lg:hidden flex items-center gap-2 mb-8">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--primary)' }}>
+              <GitBranch size={16} className="text-white" />
+            </div>
+            <span className="font-bold text-lg" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>KommoCRM</span>
+          </div>
+
+          <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: 'var(--text-primary)' }}>Iniciar sessão</h1>
+          <p className="text-sm mb-8" style={{ color: 'var(--text-secondary)' }}>Entre na sua conta para continuar</p>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="o-seu@email.com"
+                required
+                className="input-base"
+              />
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1.5">
+                <label className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Palavra-passe</label>
+                <a href="#" className="text-sm" style={{ color: 'var(--primary)' }}>Esqueceu?</a>
+              </div>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="input-base pr-10"
+                />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }}>
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" disabled={loading} className="btn btn-primary w-full py-2.5" style={{ marginTop: 8 }}>
+              {loading ? <Loader2 size={16} className="animate-spin" /> : null}
+              {loading ? 'A entrar...' : 'Entrar'}
+            </button>
+          </form>
+
+          <p className="text-sm text-center mt-6" style={{ color: 'var(--text-secondary)' }}>
+            Não tem conta?{' '}
+            <Link to="/register" style={{ color: 'var(--primary)', fontWeight: 500 }}>Criar conta</Link>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

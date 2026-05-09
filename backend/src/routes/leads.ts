@@ -1,0 +1,174 @@
+import { Router, Response } from 'express';
+import { PrismaClient } from '@prisma/client';
+import { AuthRequest } from '../middleware/auth';
+import { AppError } from '../middleware/errorHandler';
+
+const router = Router();
+const prisma = new PrismaClient();
+
+const leadInclude = {
+  stage: true,
+  pipeline: true,
+  assignedTo: { select: { id: true, name: true, avatar: true } },
+  contact: true,
+  tags: { include: { tag: true } },
+  tasks: { where: { status: { not: 'COMPLETED' } }, orderBy: { dueAt: 'asc' as const } },
+  _count: { select: { messages: true, notes: true, files: true } },
+};
+
+// GET /api/leads
+router.get('/', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { pipelineId, stageId, assignedToId, status, search, page = 1, limit = 50 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const where: any = { workspaceId: req.user!.workspaceId };
+    if (pipelineId) where.pipelineId = pipelineId;
+    if (stageId) where.stageId = stageId;
+    if (assignedToId) where.assignedToId = assignedToId;
+    if (status) where.status = status;
+    if (search) where.title = { contains: search as string, mode: 'insensitive' };
+
+    const [leads, total] = await Promise.all([
+      prisma.lead.findMany({ where, include: leadInclude, skip, take: Number(limit), orderBy: { createdAt: 'desc' } }),
+      prisma.lead.count({ where }),
+    ]);
+
+    res.json({ leads, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+  } catch (error) { next(error); }
+});
+
+// GET /api/leads/:id
+router.get('/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const lead = await prisma.lead.findFirst({
+      where: { id: req.params.id, workspaceId: req.user!.workspaceId },
+      include: {
+        ...leadInclude,
+        notes: { include: { createdBy: { select: { id: true, name: true, avatar: true } } }, orderBy: { createdAt: 'desc' } },
+        messages: { orderBy: { createdAt: 'desc' }, take: 50 },
+        activities: { include: { user: { select: { id: true, name: true, avatar: true } } }, orderBy: { createdAt: 'desc' }, take: 50 },
+        files: { orderBy: { createdAt: 'desc' } },
+        customValues: { include: { field: true } },
+      },
+    });
+
+    if (!lead) throw new AppError('Lead não encontrado', 404);
+    res.json(lead);
+  } catch (error) { next(error); }
+});
+
+// POST /api/leads
+router.post('/', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { title, value, pipelineId, stageId, contactId, assignedToId, priority, source, expectedCloseAt, tags } = req.body;
+
+    if (!title || !pipelineId || !stageId) {
+      throw new AppError('Título, pipeline e etapa são obrigatórios', 400);
+    }
+
+    const lead = await prisma.lead.create({
+      data: {
+        title,
+        value: value ? Number(value) : null,
+        pipelineId,
+        stageId,
+        contactId,
+        assignedToId,
+        priority: priority || 'MEDIUM',
+        source,
+        expectedCloseAt: expectedCloseAt ? new Date(expectedCloseAt) : null,
+        workspaceId: req.user!.workspaceId,
+        createdById: req.user!.id,
+        tags: tags ? { create: tags.map((tagId: string) => ({ tagId })) } : undefined,
+      },
+      include: leadInclude,
+    });
+
+    await prisma.activity.create({
+      data: { type: 'LEAD_CREATED', description: `Lead "${title}" criado`, leadId: lead.id, userId: req.user!.id },
+    });
+
+    const io = req.app.get('io');
+    io.to(`workspace:${req.user!.workspaceId}`).emit('lead:created', lead);
+
+    res.status(201).json(lead);
+  } catch (error) { next(error); }
+});
+
+// PATCH /api/leads/:id
+router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { title, value, stageId, assignedToId, priority, status, lostReason, expectedCloseAt } = req.body;
+
+    const existing = await prisma.lead.findFirst({ where: { id: req.params.id, workspaceId: req.user!.workspaceId } });
+    if (!existing) throw new AppError('Lead não encontrado', 404);
+
+    const lead = await prisma.lead.update({
+      where: { id: req.params.id },
+      data: {
+        ...(title && { title }),
+        ...(value !== undefined && { value: Number(value) }),
+        ...(stageId && { stageId }),
+        ...(assignedToId !== undefined && { assignedToId }),
+        ...(priority && { priority }),
+        ...(status && { status, closedAt: status !== 'OPEN' ? new Date() : null }),
+        ...(lostReason && { lostReason }),
+        ...(expectedCloseAt && { expectedCloseAt: new Date(expectedCloseAt) }),
+      },
+      include: leadInclude,
+    });
+
+    if (stageId && stageId !== existing.stageId) {
+      const stage = await prisma.stage.findUnique({ where: { id: stageId } });
+      await prisma.activity.create({
+        data: { type: 'STAGE_CHANGED', description: `Movido para "${stage?.name}"`, leadId: lead.id, userId: req.user!.id },
+      });
+    }
+
+    const io = req.app.get('io');
+    io.to(`workspace:${req.user!.workspaceId}`).emit('lead:updated', lead);
+
+    res.json(lead);
+  } catch (error) { next(error); }
+});
+
+// DELETE /api/leads/:id
+router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const lead = await prisma.lead.findFirst({ where: { id: req.params.id, workspaceId: req.user!.workspaceId } });
+    if (!lead) throw new AppError('Lead não encontrado', 404);
+
+    await prisma.lead.delete({ where: { id: req.params.id } });
+
+    const io = req.app.get('io');
+    io.to(`workspace:${req.user!.workspaceId}`).emit('lead:deleted', { id: req.params.id });
+
+    res.json({ message: 'Lead eliminado' });
+  } catch (error) { next(error); }
+});
+
+// PATCH /api/leads/:id/move
+router.patch('/:id/move', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { stageId, pipelineId } = req.body;
+
+    const lead = await prisma.lead.update({
+      where: { id: req.params.id },
+      data: { stageId, ...(pipelineId && { pipelineId }) },
+      include: leadInclude,
+    });
+
+    const stage = await prisma.stage.findUnique({ where: { id: stageId } });
+    await prisma.activity.create({
+      data: { type: 'LEAD_MOVED', description: `Movido para "${stage?.name}"`, leadId: lead.id, userId: req.user!.id },
+    });
+
+    const io = req.app.get('io');
+    io.to(`workspace:${req.user!.workspaceId}`).emit('lead:moved', lead);
+
+    res.json(lead);
+  } catch (error) { next(error); }
+});
+
+export default router;

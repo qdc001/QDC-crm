@@ -1,0 +1,126 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { createServer } from 'http';
+import { Server as SocketServer } from 'socket.io';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config();
+
+// Routes
+import authRoutes from './routes/auth';
+import userRoutes from './routes/users';
+import workspaceRoutes from './routes/workspaces';
+import pipelineRoutes from './routes/pipelines';
+import stageRoutes from './routes/stages';
+import leadRoutes from './routes/leads';
+import contactRoutes from './routes/contacts';
+import messageRoutes from './routes/messages';
+import taskRoutes from './routes/tasks';
+import noteRoutes from './routes/notes';
+import tagRoutes from './routes/tags';
+import automationRoutes from './routes/automations';
+import chatbotRoutes from './routes/chatbots';
+import templateRoutes from './routes/templates';
+import integrationRoutes from './routes/integrations';
+import webhookRoutes from './routes/webhooks';
+import analyticsRoutes from './routes/analytics';
+import notificationRoutes from './routes/notifications';
+import customFieldRoutes from './routes/customFields';
+import fileRoutes from './routes/files';
+import whatsappRoutes from './routes/whatsapp';
+import broadcastRoutes from './routes/broadcasts';
+import aiRoutes from './routes/ai';
+
+
+// Middleware
+import { errorHandler } from './middleware/errorHandler';
+import { authMiddleware } from './middleware/auth';
+import { rateLimiter } from './middleware/rateLimiter';
+
+const app = express();
+const httpServer = createServer(app);
+const io = new SocketServer(httpServer, {
+  cors: {
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    credentials: true,
+  },
+});
+
+// Global middleware
+app.use(helmet());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true,
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use(rateLimiter);
+
+// Socket.io - real-time events
+io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
+
+  socket.on('join:workspace', (workspaceId: string) => {
+    socket.join(`workspace:${workspaceId}`);
+  });
+
+  socket.on('join:lead', (leadId: string) => {
+    socket.join(`lead:${leadId}`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+  });
+});
+
+// Make io available in routes
+app.set('io', io);
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Public routes
+app.use('/api/auth', authRoutes);
+app.use('/api/webhooks', webhookRoutes);
+
+// Protected routes
+app.use('/api/users', authMiddleware, userRoutes);
+app.use('/api/workspaces', authMiddleware, workspaceRoutes);
+app.use('/api/pipelines', authMiddleware, pipelineRoutes);
+app.use('/api/stages', authMiddleware, stageRoutes);
+app.use('/api/leads', authMiddleware, leadRoutes);
+app.use('/api/contacts', authMiddleware, contactRoutes);
+app.use('/api/messages', authMiddleware, messageRoutes);
+app.use('/api/tasks', authMiddleware, taskRoutes);
+app.use('/api/notes', authMiddleware, noteRoutes);
+app.use('/api/tags', authMiddleware, tagRoutes);
+app.use('/api/automations', authMiddleware, automationRoutes);
+app.use('/api/chatbots', authMiddleware, chatbotRoutes);
+app.use('/api/templates', authMiddleware, templateRoutes);
+app.use('/api/integrations', authMiddleware, integrationRoutes);
+app.use('/api/analytics', authMiddleware, analyticsRoutes);
+app.use('/api/notifications', authMiddleware, notificationRoutes);
+app.use('/api/custom-fields', authMiddleware, customFieldRoutes);
+app.use('/api/files', authMiddleware, fileRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/broadcasts', authMiddleware, broadcastRoutes);
+app.use('/api/ai', authMiddleware, aiRoutes);
+
+
+// Error handler (must be last)
+app.use(errorHandler);
+
+const PORT = process.env.PORT || 3001;
+httpServer.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV}`);
+});
+
+(global as any).io = io;
+export { io };
+export default app;
