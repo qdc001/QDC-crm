@@ -26,26 +26,38 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { type, target, month, year, userId } = req.body;
-    if (!type || target === undefined || !month || !year) {
+    if (!type || target === undefined || target === null || !month || !year) {
       throw new AppError('Tipo, alvo, mes e ano sao obrigatorios', 400);
     }
-    const goal = await prisma.goal.upsert({
+    const finalUserId = userId || null;
+    // findFirst + create/update porque upsert com userId NULL falha em Postgres
+    const existing = await prisma.goal.findFirst({
       where: {
-        workspaceId_type_month_year_userId: {
-          workspaceId: req.user!.workspaceId,
-          type, month, year,
-          userId: userId || null,
-        },
-      },
-      update: { target: Number(target) },
-      create: {
-        type, target: Number(target), month, year,
         workspaceId: req.user!.workspaceId,
-        userId: userId || null,
+        type, month: Number(month), year: Number(year),
+        userId: finalUserId,
+      },
+    });
+    if (existing) {
+      const goal = await prisma.goal.update({
+        where: { id: existing.id },
+        data: { target: Number(target) },
+      });
+      return res.status(200).json(goal);
+    }
+    const goal = await prisma.goal.create({
+      data: {
+        type, target: Number(target),
+        month: Number(month), year: Number(year),
+        workspaceId: req.user!.workspaceId,
+        userId: finalUserId,
       },
     });
     res.status(201).json(goal);
-  } catch (e) { next(e); }
+  } catch (e: any) {
+    console.error('POST /goals error:', e);
+    next(e);
+  }
 });
 
 // PATCH /api/goals/:id

@@ -100,7 +100,10 @@ function GoalsModal({ month, year, onClose, onChanged }: {
       load();
       onChanged();
       toast.success('Meta guardada');
-    } catch { toast.error('Erro'); }
+    } catch (err: any) {
+      console.error('goals POST error:', err);
+      toast.error(err.response?.data?.message || err.message || 'Erro ao guardar meta');
+    }
   };
 
   const handleUpdate = async (id: string, target: number) => {
