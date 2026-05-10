@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Plus, Bot, Play, Trash2, X, Save, Loader2, ZapOff, Copy, Settings as SettingsIcon, AlertCircle, Activity } from 'lucide-react';
+import { Plus, Bot, Play, Trash2, X, Save, Loader2, ZapOff, Copy, Settings as SettingsIcon, AlertCircle, Activity, History, ChevronRight, CheckCircle2, Clock, User as UserIcon } from 'lucide-react';
 import ReactFlow, {
   addEdge, Background, Controls, MiniMap,
   useNodesState, useEdgesState, Connection, Edge, Node, NodeProps, Handle, Position,
@@ -7,7 +7,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import toast from 'react-hot-toast';
-import api, { ChatbotFlow, ChatbotTrigger, ChatbotNodeType } from '../lib/api';
+import api, { ChatbotFlow, ChatbotTrigger, ChatbotNodeType, ChatbotSession, ChatbotLogEntry } from '../lib/api';
 
 // ── Custom Nodes ──────────────────────────────────────
 const nodeStyle = (color: string, selected = false) => ({
@@ -161,7 +161,91 @@ function AINode({ data, selected }: NodeProps) {
   );
 }
 
-const nodeTypes = { trigger: TriggerNode, message: MessageNode, condition: ConditionNode, action: ActionNode, delay: DelayNode, end: EndNode, ai: AINode };
+function TemplateNode({ data, selected }: NodeProps) {
+  return (
+    <div style={nodeStyle('#EC4899', selected)}>
+      <Handle type="target" position={Position.Top} />
+      <Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 18 }}>📋</span>
+        <span style={{ fontWeight: 600, color: '#EC4899', fontSize: 11, textTransform: 'uppercase' }}>Template</span>
+      </div>
+      <p style={{ color: '#0F172A', fontSize: 12 }}>{data.templateName || '(sem template)'}</p>
+      {Array.isArray(data.variables) && data.variables.length > 0 && (
+        <p style={{ color: '#94A3B8', fontSize: 10, marginTop: 2 }}>{data.variables.length} variáveis</p>
+      )}
+    </div>
+  );
+}
+
+function MediaNode({ data, selected }: NodeProps) {
+  const icons: Record<string, string> = { image: '🖼️', video: '🎥', audio: '🎵', document: '📎' };
+  const t = (data.mediaType || 'image') as string;
+  return (
+    <div style={nodeStyle('#06B6D4', selected)}>
+      <Handle type="target" position={Position.Top} />
+      <Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 18 }}>{icons[t] || '📎'}</span>
+        <span style={{ fontWeight: 600, color: '#06B6D4', fontSize: 11, textTransform: 'uppercase' }}>Mídia</span>
+      </div>
+      <p style={{ color: '#0F172A', fontSize: 12, wordBreak: 'break-all' }}>
+        {data.mediaUrl ? (data.mediaUrl as string).substring(0, 60) + ((data.mediaUrl as string).length > 60 ? '...' : '') : '(sem URL)'}
+      </p>
+    </div>
+  );
+}
+
+function ButtonsNode({ data, selected }: NodeProps) {
+  const buttons = Array.isArray(data.buttons) ? data.buttons : [];
+  return (
+    <div style={nodeStyle('#F97316', selected)}>
+      <Handle type="target" position={Position.Top} />
+      <Handle type="source" position={Position.Bottom} />
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 18 }}>🔘</span>
+        <span style={{ fontWeight: 600, color: '#F97316', fontSize: 11, textTransform: 'uppercase' }}>Botões</span>
+      </div>
+      <p style={{ color: '#0F172A', fontSize: 12 }}>{data.text || data.label || '(sem texto)'}</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+        {buttons.slice(0, 3).map((b: any, i: number) => (
+          <span key={i} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 6, background: '#FFF7ED', color: '#9A3412', border: '1px solid #FED7AA' }}>
+            {b.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HandoffNode({ data, selected }: NodeProps) {
+  return (
+    <div style={nodeStyle('#FACC15', selected)}>
+      <Handle type="target" position={Position.Top} />
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 18 }}>🤝</span>
+        <span style={{ fontWeight: 600, color: '#A16207', fontSize: 11, textTransform: 'uppercase' }}>Handoff</span>
+      </div>
+      <p style={{ color: '#0F172A', fontSize: 12 }}>
+        {data.userId ? 'Atribuir a utilizador' : data.teamId ? 'Atribuir a equipa' : 'Transferir p/ humano'}
+      </p>
+    </div>
+  );
+}
+
+const nodeTypes = {
+  trigger: TriggerNode,
+  message: MessageNode,
+  template: TemplateNode,
+  media: MediaNode,
+  buttons: ButtonsNode,
+  condition: ConditionNode,
+  action: ActionNode,
+  handoff: HandoffNode,
+  delay: DelayNode,
+  end: EndNode,
+  ai: AINode,
+};
 
 // ── Default fluxo para fluxos novos ───────────────────
 const defaultNodes: Node[] = [
@@ -176,8 +260,12 @@ const defaultEdges: Edge[] = [
 
 const NODE_PALETTE: { type: ChatbotNodeType; label: string; icon: string; color: string }[] = [
   { type: 'message', label: 'Mensagem', icon: '💬', color: '#0EA5E9' },
+  { type: 'template', label: 'Template', icon: '📋', color: '#EC4899' },
+  { type: 'media', label: 'Mídia', icon: '🖼️', color: '#06B6D4' },
+  { type: 'buttons', label: 'Botões', icon: '🔘', color: '#F97316' },
   { type: 'condition', label: 'Condição', icon: '🔀', color: '#F59E0B' },
   { type: 'action', label: 'Acção', icon: '⚙️', color: '#10B981' },
+  { type: 'handoff', label: 'Handoff', icon: '🤝', color: '#FACC15' },
   { type: 'delay', label: 'Esperar', icon: '⏱️', color: '#8B5CF6' },
   { type: 'ai', label: 'Agente IA', icon: '🤖', color: '#6366F1' },
   { type: 'end', label: 'Fim', icon: '🏁', color: '#EF4444' },
@@ -437,6 +525,150 @@ function NodePropertiesPanel({
         </div>
       )}
 
+      {/* TEMPLATE */}
+      {node.type === 'template' && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Nome do template aprovado</label>
+            <input
+              value={data.templateName || ''}
+              onChange={(e) => updateField('templateName', e.target.value)}
+              className="input-base w-full text-xs"
+              placeholder="ex: order_confirmation"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Código do idioma</label>
+            <input
+              value={data.langCode || 'pt_BR'}
+              onChange={(e) => updateField('langCode', e.target.value)}
+              className="input-base w-full text-xs"
+              placeholder="pt_BR | pt_PT | en_US"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Variáveis (uma por linha, ordem 1, 2, 3...)</label>
+            <textarea
+              value={(data.variables || []).join('\n')}
+              onChange={(e) => updateField('variables', e.target.value.split('\n').filter((s) => s !== ''))}
+              rows={4}
+              className="input-base w-full text-xs"
+              placeholder={'{{contact.firstName}}\n12345'}
+            />
+            <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+              Suporta interpolação: <code>{'{{contact.firstName}}'}</code>, <code>{'{{vars.X}}'}</code>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* MEDIA */}
+      {node.type === 'media' && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Tipo</label>
+            <select
+              value={data.mediaType || 'image'}
+              onChange={(e) => updateField('mediaType', e.target.value)}
+              className="input-base w-full text-xs"
+            >
+              <option value="image">Imagem</option>
+              <option value="video">Vídeo</option>
+              <option value="audio">Áudio</option>
+              <option value="document">Documento</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">URL pública do ficheiro</label>
+            <input
+              value={data.mediaUrl || ''}
+              onChange={(e) => updateField('mediaUrl', e.target.value)}
+              className="input-base w-full text-xs"
+              placeholder="https://..."
+            />
+          </div>
+          {(data.mediaType === 'image' || data.mediaType === 'video' || data.mediaType === 'document' || !data.mediaType) && (
+            <div>
+              <label className="block text-xs font-medium mb-1">Legenda (opcional)</label>
+              <input
+                value={data.caption || ''}
+                onChange={(e) => updateField('caption', e.target.value)}
+                className="input-base w-full text-xs"
+                placeholder="Texto a acompanhar a mídia"
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* BUTTONS */}
+      {node.type === 'buttons' && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Texto da pergunta</label>
+            <textarea
+              value={data.text || ''}
+              onChange={(e) => updateField('text', e.target.value)}
+              rows={3}
+              className="input-base w-full text-xs"
+              placeholder="Escolhe uma opção:"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Botões (máx 3)</label>
+            <ButtonsEditor
+              buttons={Array.isArray(data.buttons) ? data.buttons : []}
+              onChange={(b) => updateField('buttons', b)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Guardar id do botão como</label>
+            <input
+              value={data.saveAs || ''}
+              onChange={(e) => updateField('saveAs', e.target.value)}
+              className="input-base w-full text-xs"
+              placeholder="escolha"
+            />
+            <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+              Depois usa <code>{'{{vars.escolha}}'}</code> ou um nó Condição com "igual a" para ramificar.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* HANDOFF */}
+      {node.type === 'handoff' && (
+        <div className="space-y-3">
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            Atribui a conversa a um humano e termina o fluxo. Define utilizador específico OU equipa (round-robin).
+          </p>
+          <div>
+            <label className="block text-xs font-medium mb-1">Utilizador específico</label>
+            <UserPicker
+              value={data.userId || ''}
+              onChange={(v) => updateField('userId', v)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Ou equipa (atribui ao membro com menos conversas)</label>
+            <TeamPicker
+              value={data.teamId || ''}
+              onChange={(v) => updateField('teamId', v)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Mensagem ao cliente (opcional)</label>
+            <textarea
+              value={data.message || ''}
+              onChange={(e) => updateField('message', e.target.value)}
+              rows={3}
+              className="input-base w-full text-xs"
+              placeholder="Vou transferir-te para um colega humano..."
+            />
+          </div>
+        </div>
+      )}
+
       {/* DELAY */}
       {node.type === 'delay' && (
         <div className="space-y-3">
@@ -519,6 +751,58 @@ function TagPicker({ value, onChange }: { value: string; onChange: (v: string) =
       <option value="">-- Escolher tag --</option>
       {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
     </select>
+  );
+}
+
+function TeamPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => { api.get('/teams').then((r) => setTeams(r.data)).catch(() => {}); }, []);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="input-base w-full text-xs">
+      <option value="">-- Sem equipa --</option>
+      {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+    </select>
+  );
+}
+
+function ButtonsEditor({ buttons, onChange }: { buttons: { id: string; label: string }[]; onChange: (b: { id: string; label: string }[]) => void }) {
+  const update = (i: number, patch: Partial<{ id: string; label: string }>) => {
+    const next = buttons.map((b, idx) => (idx === i ? { ...b, ...patch } : b));
+    onChange(next);
+  };
+  const add = () => {
+    if (buttons.length >= 3) return;
+    onChange([...buttons, { id: `opt${buttons.length + 1}`, label: `Opção ${buttons.length + 1}` }]);
+  };
+  const remove = (i: number) => onChange(buttons.filter((_, idx) => idx !== i));
+  return (
+    <div className="space-y-2">
+      {buttons.map((b, i) => (
+        <div key={i} className="flex gap-1 items-center">
+          <input
+            value={b.label}
+            onChange={(e) => update(i, { label: e.target.value })}
+            placeholder="Texto"
+            className="input-base flex-1 text-xs"
+          />
+          <input
+            value={b.id}
+            onChange={(e) => update(i, { id: e.target.value })}
+            placeholder="id"
+            className="input-base text-xs"
+            style={{ width: 80 }}
+          />
+          <button onClick={() => remove(i)} className="text-red-500 p-1 hover:bg-red-50 rounded">
+            <Trash2 size={12} />
+          </button>
+        </div>
+      ))}
+      {buttons.length < 3 && (
+        <button onClick={add} className="btn btn-outline text-xs py-1 w-full gap-1">
+          <Plus size={11} /> Adicionar botão
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -664,17 +948,28 @@ function ChatbotEditorInner({ flow, onClose, onSaved }: { flow: ChatbotFlow; onC
     const center = { x: 350, y: 200 };
     const labels: Record<string, string> = {
       message: 'Nova mensagem',
+      template: 'Template',
+      media: 'Enviar mídia',
+      buttons: 'Escolhe uma opção:',
       condition: 'Nova condição',
       action: 'Configurar acção',
+      handoff: 'Transferir para humano',
       delay: '1 hora',
       ai: 'Responder com IA',
       end: 'Fim',
+    };
+    const initialData: Record<string, any> = {
+      delay: { delaySeconds: 3600, label: labels.delay },
+      template: { templateName: '', langCode: 'pt_BR', variables: [], label: labels.template },
+      media: { mediaType: 'image', mediaUrl: '', caption: '', label: labels.media },
+      buttons: { text: 'Escolhe uma opção:', buttons: [{ id: 'opt1', label: 'Opção 1' }, { id: 'opt2', label: 'Opção 2' }], saveAs: 'escolha', label: labels.buttons },
+      handoff: { userId: '', teamId: '', message: 'Vou transferir-te para um colega humano. Aguarda um momento.', label: labels.handoff },
     };
     const newNode: Node = {
       id,
       type,
       position: { x: center.x + (Math.random() - 0.5) * 60, y: center.y + (Math.random() - 0.5) * 60 },
-      data: type === 'delay' ? { delaySeconds: 3600, label: labels[type] } : { label: labels[type] },
+      data: initialData[type] || { label: labels[type] || type },
     };
     setNodes((nds) => [...nds, newNode]);
     setSelectedNodeId(id);
@@ -743,9 +1038,11 @@ function ChatbotEditorInner({ flow, onClose, onSaved }: { flow: ChatbotFlow; onC
       });
 
       const log: string[] = res.data.log || [];
-      toast.success('Teste executado, ver consola');
+      const steps: ChatbotLogEntry[] = res.data.steps || [];
+      toast.success('Teste executado');
       console.log('--- Log do fluxo ---');
       log.forEach((l) => console.log(l));
+      console.log('--- Steps ---', steps);
       alert('Resultado do teste:\n\n' + log.join('\n'));
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Erro a testar');
@@ -820,8 +1117,10 @@ function ChatbotEditorInner({ flow, onClose, onSaved }: { flow: ChatbotFlow; onC
             <MiniMap
               nodeColor={(n) => {
                 const colors: Record<string, string> = {
-                  trigger: '#6366F1', message: '#0EA5E9', condition: '#F59E0B',
-                  action: '#10B981', delay: '#8B5CF6', end: '#EF4444', ai: '#6366F1',
+                  trigger: '#6366F1', message: '#0EA5E9', template: '#EC4899',
+                  media: '#06B6D4', buttons: '#F97316', condition: '#F59E0B',
+                  action: '#10B981', handoff: '#FACC15', delay: '#8B5CF6',
+                  end: '#EF4444', ai: '#6366F1',
                 };
                 return colors[n.type || ''] || '#94A3B8';
               }}
@@ -868,12 +1167,176 @@ function ChatbotEditor(props: { flow: ChatbotFlow; onClose: () => void; onSaved:
   );
 }
 
+// ── Modal de histórico de sessões ─────────────────────
+function HistoryModal({ flow, onClose }: { flow: ChatbotFlow; onClose: () => void }) {
+  const [sessions, setSessions] = useState<ChatbotSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/chatbots/${flow.id}/sessions`);
+      setSessions(res.data);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro a carregar histórico');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [flow.id]);
+
+  const clearAll = async () => {
+    if (!confirm('Limpar todas as sessões deste chatbot? Os contactos com fluxos pendentes vão começar do início na próxima mensagem.')) return;
+    setClearing(true);
+    try {
+      const res = await api.delete(`/chatbots/${flow.id}/sessions`);
+      toast.success(`${res.data.deleted} sessões eliminadas`);
+      load();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div className="card" style={{ width: 700, maxHeight: '85vh', display: 'flex', flexDirection: 'column', background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <h3 className="font-bold text-base" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+              Histórico — {flow.name}
+            </h3>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              {sessions.length} sessões registadas (mais recentes primeiro)
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {sessions.length > 0 && (
+              <button onClick={clearAll} disabled={clearing} className="btn text-xs py-1.5 px-3" style={{ color: '#EF4444', border: '1px solid #FEE2E2', background: 'transparent' }}>
+                {clearing ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Limpar tudo
+              </button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-100"><X size={16} /></button>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto' }} className="p-4">
+          {loading ? (
+            <div className="flex justify-center py-10"><Loader2 className="animate-spin" size={20} /></div>
+          ) : sessions.length === 0 ? (
+            <div className="text-center py-10 text-sm" style={{ color: 'var(--text-muted)' }}>
+              <History size={32} className="mx-auto mb-2 opacity-40" />
+              Sem execuções ainda. Quando alguém entrar no fluxo, aparece aqui.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {sessions.map((s) => {
+                const expanded = expandedId === s.id;
+                const log: ChatbotLogEntry[] = (s.log as any) || [];
+                const contactName = s.contact ? `${s.contact.firstName} ${s.contact.lastName || ''}`.trim() : 'Contacto desconhecido';
+                return (
+                  <div key={s.id} className="card p-3" style={{ background: 'var(--surface-2)' }}>
+                    <button
+                      onClick={() => setExpandedId(expanded ? null : s.id)}
+                      className="w-full flex items-center gap-3 text-left"
+                    >
+                      <ChevronRight
+                        size={14}
+                        style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .15s', color: 'var(--text-muted)' }}
+                      />
+                      <UserIcon size={14} style={{ color: 'var(--text-muted)' }} />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">{contactName}</p>
+                        <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                          {s.contact?.whatsapp || s.contact?.phone || '-'} · {new Date(s.updatedAt).toLocaleString('pt-PT')}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span style={{ color: 'var(--text-muted)' }}>{log.length} passos</span>
+                        {s.isFinished ? (
+                          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: '#ECFDF5', color: '#10B981' }}>
+                            <CheckCircle2 size={11} /> Terminado
+                          </span>
+                        ) : s.resumeAt ? (
+                          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: '#EDE9FE', color: '#8B5CF6' }}>
+                            <Clock size={11} /> A aguardar
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: '#FEF3C7', color: '#B45309' }}>
+                            <Activity size={11} /> Em curso
+                          </span>
+                        )}
+                      </div>
+                    </button>
+
+                    {expanded && (
+                      <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                        {log.length === 0 ? (
+                          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>(sem passos registados)</p>
+                        ) : (
+                          <ol className="space-y-1.5">
+                            {log.map((e, i) => (
+                              <li key={i} className="text-xs flex gap-2">
+                                <span style={{ color: 'var(--text-muted)', minWidth: 60 }}>
+                                  {new Date(e.at).toLocaleTimeString('pt-PT')}
+                                </span>
+                                <span className="font-medium" style={{ minWidth: 80, color: nodeColor(e.nodeType) }}>
+                                  {e.nodeType}
+                                </span>
+                                <span className="flex-1">
+                                  {e.action}
+                                  {e.detail && <span style={{ color: 'var(--text-muted)' }}> — {e.detail}</span>}
+                                </span>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                        {Object.keys(s.variables || {}).length > 0 && (
+                          <div className="mt-3 pt-2" style={{ borderTop: '1px dashed var(--border)' }}>
+                            <p className="text-[10px] font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>VARIÁVEIS CAPTURADAS</p>
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(s.variables || {}).map(([k, v]) => (
+                                <span key={k} className="text-[10px] px-2 py-0.5 rounded" style={{ background: 'var(--surface-3)' }}>
+                                  <code>{k}</code> = {String(v).substring(0, 30)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function nodeColor(t: string): string {
+  const c: Record<string, string> = {
+    trigger: '#6366F1', message: '#0EA5E9', template: '#EC4899',
+    media: '#06B6D4', buttons: '#F97316', condition: '#F59E0B',
+    action: '#10B981', handoff: '#A16207', delay: '#8B5CF6',
+    end: '#EF4444', ai: '#6366F1',
+  };
+  return c[t] || '#64748B';
+}
+
 // ── Página principal: lista + criar ───────────────────
 export default function ChatbotsPage() {
   const [flows, setFlows] = useState<ChatbotFlow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ChatbotFlow | null>(null);
   const [creating, setCreating] = useState(false);
+  const [historyFor, setHistoryFor] = useState<ChatbotFlow | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -1014,6 +1477,9 @@ export default function ChatbotsPage() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setEditing(bot)} className="btn btn-outline flex-1 text-xs py-1.5">Editar fluxo</button>
+                <button onClick={() => setHistoryFor(bot)} className="btn text-xs py-1.5 px-2.5" title="Histórico" style={{ border: '1px solid var(--border)', background: 'transparent' }}>
+                  <History size={13} />
+                </button>
                 <button onClick={() => duplicate(bot)} className="btn text-xs py-1.5 px-2.5" title="Duplicar" style={{ border: '1px solid var(--border)', background: 'transparent' }}>
                   <Copy size={13} />
                 </button>
@@ -1042,6 +1508,8 @@ export default function ChatbotsPage() {
           </button>
         </div>
       )}
+
+      {historyFor && <HistoryModal flow={historyFor} onClose={() => setHistoryFor(null)} />}
     </div>
   );
 }

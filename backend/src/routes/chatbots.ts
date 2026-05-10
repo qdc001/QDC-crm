@@ -186,14 +186,14 @@ router.post('/:id/test', async (req: AuthRequest, res: Response, next) => {
     if (!flow) throw new AppError('Chatbot não encontrado', 404);
     if (!contactId) throw new AppError('contactId obrigatório', 400);
 
-    const log = await runChatbotById(flow.id, {
+    const result = await runChatbotById(flow.id, {
       workspaceId: req.user!.workspaceId,
       contactId,
       message: message || '',
       dryRun: dryRun !== false,
     });
 
-    res.json({ log });
+    res.json(result);
   } catch (e) { next(e); }
 });
 

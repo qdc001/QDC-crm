@@ -1,29 +1,18 @@
 /**
  * Motor de execução de chatbots.
  *
- * Conceito:
- * - Um ChatbotFlow tem um array de `nodes` e `edges` (gerados pelo React Flow no frontend).
- * - O motor recebe uma mensagem entrada de um contacto e:
- *     1. Verifica se há sessão activa para esse contacto. Se houver, retoma o fluxo.
- *     2. Se não houver, procura fluxos cujo trigger active (first_message / keyword / always).
- *     3. Percorre os nós seguindo as edges, executando cada um, até encontrar:
- *           - um nó que pede resposta (waitForReply) -> guarda sessão e pára
- *           - um nó "delay" -> agenda retomada e pára
- *           - um nó "end" -> finaliza
- *
  * Tipos de nó suportados:
  *   trigger    -> ponto de entrada, sem efeito
- *   message    -> envia texto via canal (WhatsApp). Pode esperar resposta (data.waitForReply).
+ *   message    -> envia texto. Pode esperar resposta (data.waitForReply).
+ *   template   -> envia template aprovado WhatsApp Cloud com variáveis posicionais.
+ *   media      -> envia imagem/vídeo/áudio/documento.
+ *   buttons    -> envia interactive message com botões. Espera sempre resposta.
  *   condition  -> avalia contra a última mensagem ou variável; tem 2 handles (yes/no).
- *   action     -> executa acção interna (create_task, assign_user, change_stage, add_tag, webhook, set_priority, create_lead).
+ *   action     -> executa acção interna (create_task, assign_user, change_stage, etc).
+ *   handoff    -> transfere conversa para humano e termina o fluxo.
  *   delay      -> espera N segundos antes de continuar.
  *   ai         -> chama a Anthropic API com o histórico e envia a resposta.
  *   end        -> marca sessão como terminada.
- *
- * Variáveis disponíveis nos textos com {{ }} :
- *   {{contact.firstName}}, {{contact.phone}}, {{contact.company}}, etc.
- *   {{message}}            -> última mensagem recebida
- *   {{vars.<nome>}}        -> variáveis capturadas com data.saveAs
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -31,7 +20,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // ── Types ─────────────────────────────────────────────
-type NodeType = 'trigger' | 'message' | 'condition' | 'action' | 'delay' | 'ai' | 'end';
+type NodeType = 'trigger' | 'message' | 'template' | 'media' | 'buttons' | 'condition' | 'action' | 'handoff' | 'delay' | 'ai' | 'end';
 
 interface FlowNode {
   id: string;
@@ -46,6 +35,14 @@ interface FlowEdge {
   sourceHandle?: string | null;
 }
 
+interface LogEntry {
+  at: string;
+  nodeId: string;
+  nodeType: string;
+  action: string;
+  detail?: string;
+}
+
 interface RunContext {
   workspaceId: string;
   contactId: string;
@@ -58,8 +55,20 @@ interface RunContext {
   channel: string;
   dryRun: boolean;
   log: string[];
+  steps: LogEntry[];
   contact: any;
   io?: any;
+}
+
+function recordStep(ctx: RunContext, node: FlowNode, action: string, detail?: string) {
+  ctx.steps.push({
+    at: new Date().toISOString(),
+    nodeId: node.id,
+    nodeType: node.type,
+    action,
+    detail,
+  });
+  ctx.log.push(`${node.type}: ${action}${detail ? ` (${detail})` : ''}`);
 }
 
 // ── Interpolação de variáveis ─────────────────────────
@@ -93,6 +102,12 @@ function nextNodeId(currentId: string, edges: FlowEdge[], sourceHandle?: string)
   }
   // Sem sourceHandle ou não encontrou: pega no primeiro
   return candidates[0]?.target || null;
+}
+
+function conditionDescribe(node: FlowNode): string {
+  const t = node.data?.conditionType || 'contains';
+  const v = node.data?.conditionValue || '';
+  return t === 'is_number' || t === 'has_email' || t === 'has_phone' ? t : `${t} "${v}"`;
 }
 
 // ── Avaliação de condições ────────────────────────────
@@ -130,36 +145,82 @@ function evaluateCondition(node: FlowNode, ctx: RunContext): 'yes' | 'no' {
   return result ? 'yes' : 'no';
 }
 
-// ── Envio real de mensagem WhatsApp ───────────────────
-async function sendWhatsApp(workspaceId: string, to: string, text: string): Promise<string | null> {
+// ── Envio WhatsApp (helpers) ──────────────────────────
+async function getWhatsAppCreds(workspaceId: string): Promise<{ token: string; phoneId: string } | null> {
   const integration = await prisma.integration.findFirst({
     where: { workspaceId, type: 'WHATSAPP', isActive: true },
   });
   if (!integration) return null;
   const creds: any = integration.credentials;
   if (!creds?.token || !creds?.phoneId) return null;
+  return creds;
+}
 
+async function whatsappPost(creds: { token: string; phoneId: string }, payload: any): Promise<string | null> {
   try {
     const res = await fetch(`https://graph.facebook.com/v19.0/${creds.phoneId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.token}` },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to,
-        type: 'text',
-        text: { body: text },
-      }),
+      body: JSON.stringify({ messaging_product: 'whatsapp', ...payload }),
     });
     const data = await res.json();
     if (!res.ok) {
-      console.error('Erro a enviar WhatsApp do chatbot:', data);
+      console.error('Erro WhatsApp:', data);
       return null;
     }
     return data.messages?.[0]?.id || null;
   } catch (e) {
-    console.error('Excepção ao enviar WhatsApp do chatbot:', e);
+    console.error('Excepção WhatsApp:', e);
     return null;
   }
+}
+
+async function sendWhatsApp(workspaceId: string, to: string, text: string): Promise<string | null> {
+  const creds = await getWhatsAppCreds(workspaceId);
+  if (!creds) return null;
+  return whatsappPost(creds, { to, type: 'text', text: { body: text } });
+}
+
+async function sendWhatsAppTemplateMsg(workspaceId: string, to: string, templateName: string, langCode: string, variables: string[]): Promise<string | null> {
+  const creds = await getWhatsAppCreds(workspaceId);
+  if (!creds) return null;
+  const components = variables.length
+    ? [{ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: v })) }]
+    : [];
+  return whatsappPost(creds, {
+    to,
+    type: 'template',
+    template: { name: templateName, language: { code: langCode }, components },
+  });
+}
+
+async function sendWhatsAppMediaMsg(workspaceId: string, to: string, mediaType: string, mediaUrl: string, caption?: string): Promise<string | null> {
+  const creds = await getWhatsAppCreds(workspaceId);
+  if (!creds) return null;
+  const payload: any = { to, type: mediaType, [mediaType]: { link: mediaUrl } };
+  if (caption && (mediaType === 'image' || mediaType === 'video' || mediaType === 'document')) {
+    payload[mediaType].caption = caption;
+  }
+  return whatsappPost(creds, payload);
+}
+
+async function sendWhatsAppButtons(workspaceId: string, to: string, text: string, buttons: { id: string; label: string }[]): Promise<string | null> {
+  const creds = await getWhatsAppCreds(workspaceId);
+  if (!creds) return null;
+  // WhatsApp limita a 3 botões interactive
+  const items = buttons.slice(0, 3).map((b) => ({
+    type: 'reply',
+    reply: { id: b.id, title: b.label.substring(0, 20) },
+  }));
+  return whatsappPost(creds, {
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: text.substring(0, 1024) },
+      action: { buttons: items },
+    },
+  });
 }
 
 // ── Chamada à Anthropic API ───────────────────────────
@@ -318,7 +379,28 @@ async function executeAction(node: FlowNode, ctx: RunContext) {
   }
 }
 
-// ── Envia mensagem (com persistência na BD e via canal) ───
+// ── Persiste mensagem em BD + emit socket (não envia via canal) ─
+async function persistOutboundMessage(content: string, type: string, mediaUrl: string | undefined, externalId: string | null, ctx: RunContext) {
+  const saved = await prisma.message.create({
+    data: {
+      content,
+      type: type as any,
+      direction: 'OUTBOUND',
+      channel: ctx.channel as any,
+      status: externalId ? 'SENT' : 'PENDING',
+      externalId: externalId || undefined,
+      mediaUrl,
+      leadId: ctx.leadId || undefined,
+      contactId: ctx.contactId,
+    },
+  });
+  const io = ctx.io || (global as any).io;
+  if (io) {
+    io.to(`workspace:${ctx.workspaceId}`).emit('message:new', saved);
+    if (ctx.leadId) io.to(`lead:${ctx.leadId}`).emit('message:new', saved);
+  }
+}
+
 async function sendMessage(text: string, ctx: RunContext) {
   const interpolated = interpolate(text, ctx);
 
@@ -327,7 +409,6 @@ async function sendMessage(text: string, ctx: RunContext) {
     return;
   }
 
-  // Persiste em BD
   let externalId: string | null = null;
   const phone = ctx.contact?.whatsapp || ctx.contact?.phone;
 
@@ -335,27 +416,145 @@ async function sendMessage(text: string, ctx: RunContext) {
     externalId = await sendWhatsApp(ctx.workspaceId, phone, interpolated);
   }
 
-  const saved = await prisma.message.create({
-    data: {
-      content: interpolated,
-      type: 'TEXT',
-      direction: 'OUTBOUND',
-      channel: ctx.channel as any,
-      status: externalId ? 'SENT' : 'PENDING',
-      externalId: externalId || undefined,
-      leadId: ctx.leadId || undefined,
-      contactId: ctx.contactId,
-    },
-  });
+  await persistOutboundMessage(interpolated, 'TEXT', undefined, externalId, ctx);
+  ctx.log.push(`message: ${interpolated.substring(0, 80)}`);
+}
 
-  // Emit via socket
-  const io = ctx.io || (global as any).io;
-  if (io) {
-    io.to(`workspace:${ctx.workspaceId}`).emit('message:new', saved);
-    if (ctx.leadId) io.to(`lead:${ctx.leadId}`).emit('message:new', saved);
+async function sendTemplate(node: FlowNode, ctx: RunContext) {
+  const templateName = node.data?.templateName || '';
+  const langCode = node.data?.langCode || 'pt_BR';
+  const rawVars: string[] = Array.isArray(node.data?.variables) ? node.data.variables : [];
+  const variables = rawVars.map((v) => interpolate(String(v), ctx));
+
+  if (ctx.dryRun) {
+    recordStep(ctx, node, 'template', `${templateName} (${langCode}) com ${variables.length} variáveis`);
+    return;
   }
 
-  ctx.log.push(`message: ${interpolated.substring(0, 80)}`);
+  const phone = ctx.contact?.whatsapp || ctx.contact?.phone;
+  let externalId: string | null = null;
+  if (ctx.channel === 'WHATSAPP' && phone && templateName) {
+    externalId = await sendWhatsAppTemplateMsg(ctx.workspaceId, phone, templateName, langCode, variables);
+  }
+
+  const summary = `[Template: ${templateName}]${variables.length ? ' ' + variables.join(' | ') : ''}`;
+  await persistOutboundMessage(summary, 'TEMPLATE', undefined, externalId, ctx);
+  recordStep(ctx, node, 'template', summary);
+}
+
+async function sendMedia(node: FlowNode, ctx: RunContext) {
+  const mediaType = (node.data?.mediaType || 'image') as 'image' | 'video' | 'audio' | 'document';
+  const mediaUrl = interpolate(node.data?.mediaUrl || '', ctx);
+  const caption = node.data?.caption ? interpolate(node.data.caption, ctx) : undefined;
+
+  if (!mediaUrl) {
+    recordStep(ctx, node, 'media skip', 'sem URL');
+    return;
+  }
+
+  if (ctx.dryRun) {
+    recordStep(ctx, node, 'media', `${mediaType}: ${mediaUrl}`);
+    return;
+  }
+
+  const phone = ctx.contact?.whatsapp || ctx.contact?.phone;
+  let externalId: string | null = null;
+  if (ctx.channel === 'WHATSAPP' && phone) {
+    externalId = await sendWhatsAppMediaMsg(ctx.workspaceId, phone, mediaType, mediaUrl, caption);
+  }
+
+  const upperType = mediaType.toUpperCase();
+  const content = caption || `[${upperType}]`;
+  await persistOutboundMessage(content, upperType, mediaUrl, externalId, ctx);
+  recordStep(ctx, node, 'media', `${mediaType}: ${mediaUrl.substring(0, 60)}`);
+}
+
+async function sendButtons(node: FlowNode, ctx: RunContext) {
+  const text = interpolate(node.data?.text || node.data?.label || 'Escolhe uma opção:', ctx);
+  const rawButtons: any[] = Array.isArray(node.data?.buttons) ? node.data.buttons : [];
+  const buttons = rawButtons
+    .filter((b) => b && b.label)
+    .slice(0, 3)
+    .map((b, i) => ({ id: String(b.id || `btn_${i}`), label: String(b.label) }));
+
+  if (buttons.length === 0) {
+    recordStep(ctx, node, 'buttons skip', 'sem botões');
+    return;
+  }
+
+  if (ctx.dryRun) {
+    recordStep(ctx, node, 'buttons', `${text} [${buttons.map((b) => b.label).join(' | ')}]`);
+    return;
+  }
+
+  const phone = ctx.contact?.whatsapp || ctx.contact?.phone;
+  let externalId: string | null = null;
+  if (ctx.channel === 'WHATSAPP' && phone) {
+    externalId = await sendWhatsAppButtons(ctx.workspaceId, phone, text, buttons);
+  }
+
+  const summary = `${text}\n\n${buttons.map((b) => `[${b.label}]`).join(' ')}`;
+  await persistOutboundMessage(summary, 'INTERACTIVE', undefined, externalId, ctx);
+  recordStep(ctx, node, 'buttons', text.substring(0, 80));
+}
+
+async function executeHandoff(node: FlowNode, ctx: RunContext) {
+  const userId = node.data?.userId || null;
+  const teamId = node.data?.teamId || null;
+  const farewell = node.data?.message ? interpolate(node.data.message, ctx) : '';
+
+  // Mensagem opcional de transição ao cliente
+  if (farewell) await sendMessage(farewell, ctx);
+
+  if (ctx.dryRun) {
+    recordStep(ctx, node, 'handoff', `userId=${userId} teamId=${teamId}`);
+    return;
+  }
+
+  // Resolver utilizador final: se userId definido, usa-o. Senão, escolhe membro da equipa com menos conversas atribuídas.
+  let assignTo = userId;
+  if (!assignTo && teamId) {
+    const teamUsers = await prisma.user.findMany({ where: { teamId, isActive: true }, select: { id: true } });
+    if (teamUsers.length) {
+      // Round-robin simples: escolhe o que tem menos conversas atribuídas
+      const counts = await Promise.all(
+        teamUsers.map(async (u) => ({
+          id: u.id,
+          n: await prisma.conversationMeta.count({ where: { assignedToId: u.id, isArchived: false } }),
+        })),
+      );
+      counts.sort((a, b) => a.n - b.n);
+      assignTo = counts[0]?.id || null;
+    }
+  }
+
+  // Atribuir conversa via ConversationMeta (chave: workspace + contact + channel)
+  if (assignTo) {
+    const channel = ctx.channel;
+    await prisma.conversationMeta.upsert({
+      where: { workspaceId_contactId_channel: { workspaceId: ctx.workspaceId, contactId: ctx.contactId, channel } },
+      create: { workspaceId: ctx.workspaceId, contactId: ctx.contactId, channel, assignedToId: assignTo },
+      update: { assignedToId: assignTo },
+    });
+
+    // Notificar o agente
+    await prisma.notification.create({
+      data: {
+        userId: assignTo,
+        title: 'Conversa atribuída pelo chatbot',
+        body: `${ctx.contact?.firstName || 'Cliente'} foi transferido para ti`,
+        type: 'handoff',
+        link: '/inbox',
+      },
+    }).catch(() => {});
+
+    const io = ctx.io || (global as any).io;
+    if (io) io.to(`user:${assignTo}`).emit('notification:new', { type: 'handoff' });
+
+    recordStep(ctx, node, 'handoff', `atribuído a ${assignTo}`);
+  } else {
+    recordStep(ctx, node, 'handoff', 'sem agente disponível');
+  }
 }
 
 // ── Loop principal de execução ────────────────────────
@@ -380,39 +579,77 @@ async function executeFromNode(
     switch (node.type) {
       case 'message': {
         await sendMessage(node.data?.text || node.data?.label || '', ctx);
-
-        // Se este nó espera resposta, paramos aqui e guardamos sessão
+        recordStep(ctx, node, 'message sent', (node.data?.text || '').substring(0, 80));
         if (node.data?.waitForReply) {
-          await persistSession(ctx, node.id, sessionId);
+          sessionId = await persistSession(ctx, node.id, sessionId);
           return;
         }
         currentId = nextNodeId(node.id, ctx.edges);
         break;
       }
 
+      case 'template': {
+        await sendTemplate(node, ctx);
+        if (node.data?.waitForReply) {
+          sessionId = await persistSession(ctx, node.id, sessionId);
+          return;
+        }
+        currentId = nextNodeId(node.id, ctx.edges);
+        break;
+      }
+
+      case 'media': {
+        await sendMedia(node, ctx);
+        if (node.data?.waitForReply) {
+          sessionId = await persistSession(ctx, node.id, sessionId);
+          return;
+        }
+        currentId = nextNodeId(node.id, ctx.edges);
+        break;
+      }
+
+      case 'buttons': {
+        await sendButtons(node, ctx);
+        // Botões esperam sempre resposta
+        sessionId = await persistSession(ctx, node.id, sessionId);
+        return;
+      }
+
       case 'condition': {
         const branch = evaluateCondition(node, ctx);
-        ctx.log.push(`condition: ${branch}`);
+        recordStep(ctx, node, `condition: ${branch}`, conditionDescribe(node));
         currentId = nextNodeId(node.id, ctx.edges, branch);
         break;
       }
 
       case 'action': {
         await executeAction(node, ctx);
+        recordStep(ctx, node, `action ${node.data?.actionType || ''}`);
         currentId = nextNodeId(node.id, ctx.edges);
         break;
+      }
+
+      case 'handoff': {
+        await executeHandoff(node, ctx);
+        if (sessionId) {
+          await prisma.chatbotSession.update({
+            where: { id: sessionId },
+            data: { isFinished: true, currentNodeId: node.id, log: ctx.steps as any },
+          });
+        }
+        return;
       }
 
       case 'delay': {
         const seconds = Number(node.data?.delaySeconds) || 60;
         const resumeAt = new Date(Date.now() + seconds * 1000);
-        ctx.log.push(`delay: a aguardar ${seconds}s`);
-        await persistSession(ctx, node.id, sessionId, resumeAt);
+        recordStep(ctx, node, 'delay', `${seconds}s`);
+        sessionId = await persistSession(ctx, node.id, sessionId, resumeAt);
 
-        // Agenda retoma in-memory (em produção devia usar cron, mas para v1 chega)
-        if (!ctx.dryRun) {
+        if (!ctx.dryRun && sessionId) {
+          const sid = sessionId;
           setTimeout(() => {
-            resumeChatbotSession(sessionId || '', ctx.flowId).catch((e) => console.error('resume error:', e));
+            resumeChatbotSession(sid, ctx.flowId).catch((e) => console.error('resume error:', e));
           }, seconds * 1000);
         }
         return;
@@ -441,9 +678,10 @@ async function executeFromNode(
 
         const reply = await callClaude(systemPrompt, history);
         await sendMessage(reply, ctx);
+        recordStep(ctx, node, 'ai reply', reply.substring(0, 80));
 
         if (node.data?.waitForReply) {
-          await persistSession(ctx, node.id, sessionId);
+          sessionId = await persistSession(ctx, node.id, sessionId);
           return;
         }
         currentId = nextNodeId(node.id, ctx.edges);
@@ -451,9 +689,12 @@ async function executeFromNode(
       }
 
       case 'end': {
-        ctx.log.push('end: fluxo terminado');
+        recordStep(ctx, node, 'end', 'fluxo terminado');
         if (sessionId) {
-          await prisma.chatbotSession.update({ where: { id: sessionId }, data: { isFinished: true, currentNodeId: node.id } });
+          await prisma.chatbotSession.update({
+            where: { id: sessionId },
+            data: { isFinished: true, currentNodeId: node.id, log: ctx.steps as any },
+          });
         }
         return;
       }
@@ -485,6 +726,7 @@ async function persistSession(
       data: {
         currentNodeId,
         variables: ctx.vars,
+        log: ctx.steps as any,
         leadId: ctx.leadId || null,
         resumeAt: resumeAt || null,
       },
@@ -499,6 +741,7 @@ async function persistSession(
       leadId: ctx.leadId || null,
       currentNodeId,
       variables: ctx.vars,
+      log: ctx.steps as any,
       resumeAt: resumeAt || null,
     },
   });
@@ -526,8 +769,9 @@ async function buildContext(
     vars: {},
     lastMessage: opts.message || '',
     channel: opts.channel || flow.channel || 'WHATSAPP',
-    dryRun: opts.dryRun !== false ? !!opts.dryRun : false,
+    dryRun: !!opts.dryRun,
     log: [],
+    steps: [],
     contact,
     io: opts.io,
   };
@@ -537,11 +781,11 @@ async function buildContext(
 export async function runChatbotById(
   flowId: string,
   opts: { workspaceId: string; contactId: string; message?: string; dryRun?: boolean; io?: any },
-): Promise<string[]> {
+): Promise<{ log: string[]; steps: LogEntry[] }> {
   const ctx = await buildContext(flowId, { ...opts, dryRun: opts.dryRun !== false });
-  if (!ctx) return ['Fluxo ou contacto não encontrado'];
+  if (!ctx) return { log: ['Fluxo ou contacto não encontrado'], steps: [] };
   await executeFromNode(null, ctx, null);
-  return ctx.log;
+  return { log: ctx.log, steps: ctx.steps };
 }
 
 // ── Entry-point: chamado pelo webhook quando chega mensagem ─
@@ -574,11 +818,21 @@ export async function runChatbotForMessage(opts: {
     });
     if (!ctx) return;
     ctx.vars = (session.variables as any) || {};
+    ctx.steps = (session.log as any) || [];
 
     // Capturar resposta na variável definida pelo nó actual (se tiver saveAs)
     const currentNode = ctx.nodes.find((n) => n.id === session.currentNodeId);
     if (currentNode?.data?.saveAs) {
       ctx.vars[currentNode.data.saveAs] = message;
+    }
+    if (currentNode) {
+      ctx.steps.push({
+        at: new Date().toISOString(),
+        nodeId: currentNode.id,
+        nodeType: currentNode.type,
+        action: 'reply received',
+        detail: message.substring(0, 80),
+      });
     }
 
     // Avança para o próximo nó depois do nó actual
@@ -656,6 +910,7 @@ async function resumeChatbotSession(sessionId: string, flowId: string): Promise<
   });
   if (!ctx) return;
   ctx.vars = (session.variables as any) || {};
+  ctx.steps = (session.log as any) || [];
 
   const nextId = nextNodeId(session.currentNodeId, ctx.edges);
   if (!nextId) {

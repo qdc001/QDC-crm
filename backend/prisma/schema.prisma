@@ -461,6 +461,7 @@ model ChatbotSession {
   leadId      String?
   currentNodeId String   // no onde a execucao esta parada (geralmente um no que espera resposta)
   variables   Json     @default("{}") // valores capturados pelas perguntas durante o fluxo
+  log         Json     @default("[]") // historico de passos executados [{at, nodeId, nodeType, action, detail}]
   isFinished  Boolean  @default(false)
   resumeAt    DateTime? // para nos de "esperar tempo"
   createdAt   DateTime @default(now())

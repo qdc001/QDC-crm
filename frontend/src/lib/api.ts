@@ -411,7 +411,11 @@ export interface RevenueData {
 
 export type ChatbotTrigger = 'first_message' | 'keyword' | 'always';
 
-export type ChatbotNodeType = 'trigger' | 'message' | 'condition' | 'action' | 'delay' | 'ai' | 'end';
+export type ChatbotNodeType =
+  | 'trigger' | 'message' | 'template' | 'media' | 'buttons'
+  | 'condition' | 'action' | 'handoff' | 'delay' | 'ai' | 'end';
+
+export interface ChatbotButton { id: string; label: string; }
 
 export interface ChatbotNodeData {
   label?: string;
@@ -420,6 +424,20 @@ export interface ChatbotNodeData {
   waitForReply?: boolean;
   saveAs?: string;
   aiPrompt?: string;
+  // template
+  templateName?: string;
+  langCode?: string;
+  variables?: string[];
+  // media
+  mediaType?: 'image' | 'video' | 'audio' | 'document';
+  mediaUrl?: string;
+  caption?: string;
+  // buttons
+  buttons?: ChatbotButton[];
+  // handoff
+  userId?: string;
+  teamId?: string;
+  message?: string;
   // condition
   conditionType?: 'contains' | 'equals' | 'starts_with' | 'is_number' | 'has_email' | 'has_phone';
   conditionValue?: string;
@@ -431,6 +449,14 @@ export interface ChatbotNodeData {
   delaySeconds?: number;
   // generic raw value
   value?: string;
+}
+
+export interface ChatbotLogEntry {
+  at: string;
+  nodeId: string;
+  nodeType: string;
+  action: string;
+  detail?: string;
 }
 
 export interface ChatbotNode {
@@ -475,6 +501,7 @@ export interface ChatbotSession {
   leadId?: string | null;
   currentNodeId: string;
   variables: Record<string, any>;
+  log?: ChatbotLogEntry[];
   isFinished: boolean;
   resumeAt?: string | null;
   createdAt: string;

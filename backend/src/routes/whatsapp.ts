@@ -99,12 +99,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
           let mediaUrl: string | undefined;
           let msgType = 'TEXT';
 
+          let interactiveButtonId: string | null = null; // id do botão clicado (para o motor)
+
           if (msg.type === 'text') {
             content = msg.text.body;
           } else if (msg.type === 'image') {
             msgType = 'IMAGE';
             content = msg.image?.caption || '[Imagem]';
-            mediaUrl = msg.image?.id; // media ID, fetch separately if needed
+            mediaUrl = msg.image?.id;
           } else if (msg.type === 'audio') {
             msgType = 'AUDIO';
             content = '[Áudio]';
@@ -114,6 +116,18 @@ router.post('/webhook', async (req: Request, res: Response) => {
           } else if (msg.type === 'location') {
             msgType = 'LOCATION';
             content = `Localização: ${msg.location?.latitude}, ${msg.location?.longitude}`;
+          } else if (msg.type === 'interactive') {
+            msgType = 'INTERACTIVE';
+            const inter = msg.interactive || {};
+            if (inter.button_reply) {
+              interactiveButtonId = inter.button_reply.id || null;
+              content = inter.button_reply.title || interactiveButtonId || '[Botão]';
+            } else if (inter.list_reply) {
+              interactiveButtonId = inter.list_reply.id || null;
+              content = inter.list_reply.title || interactiveButtonId || '[Lista]';
+            } else {
+              content = '[Interactive]';
+            }
           } else {
             content = `[${msg.type}]`;
           }
@@ -192,12 +206,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
           });
 
           // Disparar motor de chatbots (não bloqueia o webhook)
-          if (msgType === 'TEXT' && content) {
+          // Para interactive: passa o id do botão clicado como mensagem (para condições matched contra esse id)
+          if ((msgType === 'TEXT' || msgType === 'INTERACTIVE') && content) {
             runChatbotForMessage({
               workspaceId,
               contactId: contact.id,
               leadId: lead?.id,
-              message: content,
+              message: interactiveButtonId || content,
               channel: 'WHATSAPP',
               io,
             }).catch((e) => console.error('Chatbot engine error:', e));
