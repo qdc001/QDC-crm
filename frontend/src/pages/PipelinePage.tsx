@@ -850,7 +850,7 @@ function ManageLeadFieldsModal({
 }
 
 // ============== Add Lead Modal ==============
-function AddLeadModal({
+export function AddLeadModal({
   stageId,
   pipelineId,
   onClose,
@@ -1032,7 +1032,7 @@ function AddLeadModal({
 }
 
 // ============== Lead Detail Modal ==============
-function LeadDetailModal({
+export function LeadDetailModal({
   lead,
   onClose,
   onUpdated,
