@@ -39,10 +39,12 @@ type SortDir = 'asc' | 'desc';
 // ====== Modal: Novo Lead com selector de pipeline+etapa ======
 function AddLeadFromListModal({
   pipelines,
+  users,
   onClose,
   onCreated,
 }: {
   pipelines: Pipeline[];
+  users: User[];
   onClose: () => void;
   onCreated: (lead: Lead) => void;
 }) {
@@ -53,6 +55,7 @@ function AddLeadFromListModal({
   const [title, setTitle] = useState('');
   const [value, setValue] = useState('');
   const [priority, setPriority] = useState('MEDIUM');
+  const [assignedToId, setAssignedToId] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -75,6 +78,7 @@ function AddLeadFromListModal({
         priority,
         pipelineId,
         stageId,
+        assignedToId: assignedToId || undefined,
       });
       toast.success('Lead criado');
       onCreated(data);
@@ -147,6 +151,16 @@ function AddLeadFromListModal({
               <option value="MEDIUM">Media</option>
               <option value="HIGH">Alta</option>
               <option value="URGENT">Urgente</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Responsavel</label>
+            <select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)} className="input-base">
+              <option value="">— Sem atribuir —</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
             </select>
           </div>
 
@@ -579,6 +593,7 @@ export default function LeadsPage() {
       {adding && (
         <AddLeadFromListModal
           pipelines={pipelines}
+          users={users}
           onClose={() => setAdding(false)}
           onCreated={(lead) => {
             setLeads((prev) => [lead, ...prev]);

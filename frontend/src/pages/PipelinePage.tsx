@@ -21,7 +21,7 @@ import {
   Plus, MoreVertical, Phone, Mail, Calendar, DollarSign,
   User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse, Layers, SlidersHorizontal,
 } from 'lucide-react';
-import api, { Lead, Pipeline, Stage, CustomField, CustomFieldType } from '../lib/api';
+import api, { Lead, Pipeline, Stage, CustomField, CustomFieldType, User } from '../lib/api';
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 
@@ -864,10 +864,12 @@ export function AddLeadModal({
   const [title, setTitle] = useState('');
   const [value, setValue] = useState('');
   const [priority, setPriority] = useState('MEDIUM');
+  const [assignedToId, setAssignedToId] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [customValues, setCustomValues] = useState<Record<string, string>>({});
   const [showFieldsManager, setShowFieldsManager] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
   const [builtinConfig] = useBuiltinConfig();
 
   const loadFields = () => {
@@ -876,6 +878,12 @@ export function AddLeadModal({
       .catch(() => setCustomFields([]));
   };
   useEffect(loadFields, []);
+
+  useEffect(() => {
+    api.get('/users')
+      .then(({ data }) => setUsers(Array.isArray(data) ? data : []))
+      .catch(() => setUsers([]));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -897,6 +905,7 @@ export function AddLeadModal({
         priority,
         stageId,
         pipelineId,
+        assignedToId: assignedToId || undefined,
         customValues: customFields.map((f) => ({ fieldId: f.id, value: customValues[f.id] || '' })),
       });
       toast.success('Lead criado com sucesso');
@@ -987,6 +996,22 @@ export function AddLeadModal({
               </div>
             )}
 
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Responsavel
+              </label>
+              <select
+                value={assignedToId}
+                onChange={(e) => setAssignedToId(e.target.value)}
+                className="input-base"
+              >
+                <option value="">— Sem atribuir —</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+            </div>
+
             {customFields.length > 0 && (
               <div className="border-t pt-3 space-y-3" style={{ borderColor: 'var(--border)' }}>
                 {customFields.map((field) => (
@@ -1046,8 +1071,17 @@ export function LeadDetailModal({
   const [title, setTitle] = useState(lead.title);
   const [value, setValue] = useState(lead.value?.toString() || '');
   const [priority, setPriority] = useState(lead.priority);
+  const [assignedToId, setAssignedToId] = useState<string>(lead.assignedTo?.id || '');
+  const [status, setStatus] = useState<string>(lead.status);
   const [loading, setLoading] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
   const [builtinConfig] = useBuiltinConfig();
+
+  useEffect(() => {
+    api.get('/users')
+      .then(({ data }) => setUsers(Array.isArray(data) ? data : []))
+      .catch(() => setUsers([]));
+  }, []);
 
   const handleUpdate = async () => {
     setLoading(true);
@@ -1056,6 +1090,8 @@ export function LeadDetailModal({
         title,
         value: value ? Number(value) : null,
         priority,
+        assignedToId: assignedToId || null,
+        status,
       });
       toast.success('Lead actualizado');
       onUpdated(data);
@@ -1084,12 +1120,12 @@ export function LeadDetailModal({
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center z-50"
+      className="fixed inset-0 flex items-center justify-center z-50 p-4"
       style={{ background: 'rgba(0,0,0,0.4)' }}
       onClick={onClose}
     >
       <div
-        className="card p-6 w-full max-w-md"
+        className="card p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -1140,6 +1176,37 @@ export function LeadDetailModal({
               </select>
             </div>
           )}
+
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+              Responsavel
+            </label>
+            <select
+              value={assignedToId}
+              onChange={(e) => setAssignedToId(e.target.value)}
+              className="input-base"
+            >
+              <option value="">— Sem atribuir —</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+              Estado
+            </label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="input-base"
+            >
+              <option value="OPEN">Aberto</option>
+              <option value="WON">Ganho</option>
+              <option value="LOST">Perdido</option>
+            </select>
+          </div>
 
           <div className="flex gap-2 pt-2">
             <button
