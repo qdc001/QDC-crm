@@ -223,6 +223,8 @@ model Message {
   mediaType   String?
   externalId  String?
   readAt      DateTime?
+  editedAt    DateTime?
+  isInternal  Boolean       @default(false)
   createdAt   DateTime      @default(now())
 
   lead        Lead?    @relation(fields: [leadId], references: [id])
@@ -231,6 +233,10 @@ model Message {
   contactId   String?
   sentBy      User?    @relation(fields: [sentById], references: [id])
   sentById    String?
+
+  replyToId   String?
+  replyTo     Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     Message[] @relation("MessageReplies")
 
   @@map("messages")
 }

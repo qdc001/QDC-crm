@@ -298,6 +298,47 @@ Responde em Português de Moçambique. Seja conciso, prático e amigável.`;
   } catch (e) { next(e); }
 });
 
+// ── POST /api/ai/summarize-conversation ──────────────────────────
+// Resume uma conversa de mensagens (sem precisar de leadId)
+router.post('/summarize-conversation', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, leadId } = req.body;
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new AppError('API key de IA nao configurada', 500);
+
+    const where: any = { isInternal: false };
+    if (contactId) where.contactId = contactId;
+    if (leadId) where.leadId = leadId;
+    if (!contactId && !leadId) throw new AppError('contactId ou leadId obrigatorio', 400);
+
+    const messages = await prisma.message.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+      include: { contact: { select: { firstName: true, lastName: true } } },
+    });
+    if (messages.length === 0) {
+      return res.json({ summary: 'Sem mensagens para resumir.' });
+    }
+
+    const conv = messages.map((m: any) =>
+      `[${m.direction === 'INBOUND' ? 'Cliente' : 'Agente'} - ${m.channel}]: ${m.content}`
+    ).join('\n');
+
+    const summary = await callClaude(
+      `Você é um assistente CRM. Resume conversas em Português de Moçambique de forma clara e prática.`,
+      `Resume esta conversa em 3-5 frases. Inclui: 1) tópicos principais 2) próximos passos pendentes 3) sentimento do cliente.
+
+Conversa:
+${conv}`,
+      apiKey,
+      400
+    );
+
+    res.json({ summary });
+  } catch (e) { next(e); }
+});
+
 // ── POST /api/ai/agent-reply ──────────────────────────
 // Resposta automática do agente IA para um lead
 router.post('/agent-reply', async (req: AuthRequest, res: Response, next) => {

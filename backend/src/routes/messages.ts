@@ -5,15 +5,23 @@ import { AppError } from '../middleware/errorHandler';
 const prisma = new PrismaClient();
 const router = Router();
 
-// GET /api/messages/conversations - lista de conversas (uma por contacto/telefone)
+const messageInclude = {
+  sentBy: { select: { id: true, name: true, avatar: true } },
+  contact: { select: { id: true, firstName: true, lastName: true } },
+  replyTo: { select: { id: true, content: true, direction: true, sentBy: { select: { name: true } } } },
+};
+
+// GET /api/messages/conversations - lista de conversas
 router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { channel, search, unreadOnly } = req.query;
-    // Buscar todas as mensagens do workspace
-    const messageWhere: any = { OR: [
-      { contact: { workspaceId: req.user!.workspaceId } },
-      { lead: { workspaceId: req.user!.workspaceId } },
-    ] };
+    const { channel, search, unreadOnly, combineByContact } = req.query;
+    const messageWhere: any = {
+      OR: [
+        { contact: { workspaceId: req.user!.workspaceId } },
+        { lead: { workspaceId: req.user!.workspaceId } },
+      ],
+      isInternal: false,
+    };
     if (channel) messageWhere.channel = channel;
 
     const messages = await prisma.message.findMany({
@@ -26,22 +34,31 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Agrupar por contactId (ou se nao tiver contactId, por leadId)
     const byKey: Record<string, any> = {};
     for (const m of messages) {
-      const key = m.contactId || (m.leadId ? `lead:${m.leadId}` : `none:${m.channel}`);
+      let key: string;
+      if (combineByContact === 'true' && m.contactId) {
+        key = m.contactId;
+      } else {
+        key = m.contactId
+          ? `${m.contactId}:${m.channel}`
+          : m.leadId ? `lead:${m.leadId}:${m.channel}` : `none:${m.channel}`;
+      }
       if (!byKey[key]) {
         byKey[key] = {
           key,
           contact: m.contact || null,
           leadId: m.leadId || null,
           channel: m.channel,
+          channels: new Set([m.channel]),
           lastMessage: m,
           messages: [m],
           unread: 0,
+          combined: combineByContact === 'true',
         };
       } else {
         byKey[key].messages.push(m);
+        byKey[key].channels.add(m.channel);
       }
       if (m.direction === 'INBOUND' && !m.readAt) {
         byKey[key].unread++;
@@ -53,12 +70,13 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
       contact: c.contact,
       leadId: c.leadId,
       channel: c.channel,
+      channels: Array.from(c.channels),
       lastMessage: c.lastMessage,
       unread: c.unread,
       total: c.messages.length,
+      combined: c.combined,
     }));
 
-    // Filtros
     if (unreadOnly === 'true') conversations = conversations.filter((c: any) => c.unread > 0);
     if (search) {
       const q = (search as string).toLowerCase();
@@ -74,29 +92,25 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// GET /api/messages?contactId=X ou ?leadId=X - mensagens de uma conversa
+// GET /api/messages
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { leadId, contactId, page = 1, limit = 100 } = req.query;
+    const { leadId, contactId, allChannels, page = 1, limit = 200 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
     const where: any = {};
     if (leadId) where.leadId = leadId;
     if (contactId) where.contactId = contactId;
+    // Quando combinado por contacto, queremos todos os canais mas limita ao workspace
     if (!leadId && !contactId) {
-      // Limita ao workspace
       where.OR = [
         { contact: { workspaceId: req.user!.workspaceId } },
         { lead: { workspaceId: req.user!.workspaceId } },
       ];
     }
     const messages = await prisma.message.findMany({
-      where,
-      skip, take: Number(limit),
+      where, skip, take: Number(limit),
       orderBy: { createdAt: 'asc' },
-      include: {
-        sentBy: { select: { id: true, name: true, avatar: true } },
-        contact: { select: { id: true, firstName: true, lastName: true } },
-      },
+      include: messageInclude,
     });
     res.json(messages);
   } catch (e) { next(e); }
@@ -105,25 +119,24 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 // POST /api/messages
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { content, channel, contactId, leadId, type, mediaUrl, mediaType } = req.body;
-    if (!content) throw new AppError('Conteudo da mensagem obrigatorio', 400);
+    const { content, channel, contactId, leadId, type, direction, mediaUrl, mediaType, replyToId, isInternal } = req.body;
+    if (!content) throw new AppError('Conteudo obrigatorio', 400);
     if (!channel) throw new AppError('Canal obrigatorio', 400);
     const message = await prisma.message.create({
       data: {
         content,
         channel,
         type: type || 'TEXT',
-        direction: 'OUTBOUND',
+        direction: direction || 'OUTBOUND',
         status: 'SENT',
         contactId: contactId || null,
         leadId: leadId || null,
+        replyToId: replyToId || null,
+        isInternal: !!isInternal,
         mediaUrl, mediaType,
         sentById: req.user!.id,
       },
-      include: {
-        sentBy: { select: { id: true, name: true, avatar: true } },
-        contact: { select: { id: true, firstName: true, lastName: true } },
-      },
+      include: messageInclude,
     });
     const io = req.app.get('io');
     if (message.leadId) io.to(`lead:${message.leadId}`).emit('message:new', message);
@@ -132,7 +145,26 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// PATCH /api/messages/:id/read - marcar uma mensagem como lida
+// PATCH /api/messages/:id - editar mensagem (apenas conteudo)
+router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { content } = req.body;
+    if (!content) throw new AppError('Conteudo obrigatorio', 400);
+    const existing = await prisma.message.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw new AppError('Mensagem nao encontrada', 404);
+    if (existing.sentById !== req.user!.id) {
+      throw new AppError('So podes editar mensagens que enviaste', 403);
+    }
+    const message = await prisma.message.update({
+      where: { id: req.params.id },
+      data: { content, editedAt: new Date() },
+      include: messageInclude,
+    });
+    res.json(message);
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/messages/:id/read
 router.patch('/:id/read', async (req: AuthRequest, res: Response, next) => {
   try {
     const message = await prisma.message.update({
@@ -143,17 +175,14 @@ router.patch('/:id/read', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/messages/mark-conversation-read - marcar todas de uma conversa
+// POST /api/messages/mark-conversation-read
 router.post('/mark-conversation-read', async (req: AuthRequest, res: Response, next) => {
   try {
     const { contactId, leadId } = req.body;
     const where: any = { direction: 'INBOUND', readAt: null };
     if (contactId) where.contactId = contactId;
     if (leadId) where.leadId = leadId;
-    const result = await prisma.message.updateMany({
-      where,
-      data: { readAt: new Date(), status: 'READ' },
-    });
+    const result = await prisma.message.updateMany({ where, data: { readAt: new Date(), status: 'READ' } });
     res.json({ updated: result.count });
   } catch (e) { next(e); }
 });
@@ -161,6 +190,11 @@ router.post('/mark-conversation-read', async (req: AuthRequest, res: Response, n
 // DELETE /api/messages/:id
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
+    const existing = await prisma.message.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw new AppError('Mensagem nao encontrada', 404);
+    if (existing.sentById !== req.user!.id) {
+      throw new AppError('So podes eliminar mensagens que enviaste', 403);
+    }
     await prisma.message.delete({ where: { id: req.params.id } });
     res.json({ message: 'Mensagem eliminada' });
   } catch (e) { next(e); }

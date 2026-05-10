@@ -120,11 +120,29 @@ export interface Message {
   mediaUrl?: string;
   mediaType?: string;
   readAt?: string | null;
+  editedAt?: string | null;
+  isInternal?: boolean;
   createdAt: string;
   sentBy?: User;
   leadId?: string;
   contactId?: string;
   contact?: { id: string; firstName: string; lastName?: string };
+  replyToId?: string | null;
+  replyTo?: {
+    id: string;
+    content: string;
+    direction: 'INBOUND' | 'OUTBOUND';
+    sentBy?: { name: string };
+  } | null;
+}
+
+export interface MessageTemplate {
+  id: string;
+  name: string;
+  content: string;
+  category: 'MARKETING' | 'UTILITY' | 'AUTHENTICATION' | 'SERVICE';
+  channel: string;
+  variables: string[];
 }
 
 export interface Conversation {
@@ -141,9 +159,11 @@ export interface Conversation {
   } | null;
   leadId: string | null;
   channel: string;
+  channels?: string[];
   lastMessage: Message;
   unread: number;
   total: number;
+  combined?: boolean;
 }
 
 export interface Task {
