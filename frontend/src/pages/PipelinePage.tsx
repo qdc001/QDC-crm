@@ -1553,6 +1553,10 @@ export default function PipelinePage() {
     }
     if (!targetActiveStage) return;
 
+    // Helper: encontrar objecto Stage completo num pipeline carregado
+    const findStage = (pipelineId: string, stageId: string): Stage | undefined =>
+      pipelines.find((p) => p.id === pipelineId)?.stages.find((s) => s.id === stageId);
+
     // Caso especial: vista agregada + lead de outro pipeline
     // Mapear a coluna alvo do Principal para a etapa equivalente no pipeline original
     if (isAggregated && activeLead.pipelineId !== activePipelineId) {
@@ -1585,16 +1589,27 @@ export default function PipelinePage() {
       }
       if (newStageId === activeLead.stageId) return;
 
+      const oldStage = activeLead.stage;
       const oldStageId = activeLead.stageId;
+      const newStage = findStage(activeLead.pipelineId, newStageId);
+      // Optimistic update com stage completa para o re-render mapear bem
       setLeads((prev) =>
-        prev.map((l) => (l.id === activeLeadId ? { ...l, stageId: newStageId! } : l))
+        prev.map((l) =>
+          l.id === activeLeadId
+            ? { ...l, stageId: newStageId!, stage: newStage || l.stage }
+            : l
+        )
       );
       try {
-        await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId });
+        const { data } = await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId });
+        // Sincronizar com resposta completa do backend
+        setLeads((prev) => prev.map((l) => (l.id === activeLeadId ? data : l)));
         toast.success(`Movido em "${originalPipeline.name}"`);
       } catch {
         setLeads((prev) =>
-          prev.map((l) => (l.id === activeLeadId ? { ...l, stageId: oldStageId } : l))
+          prev.map((l) =>
+            l.id === activeLeadId ? { ...l, stageId: oldStageId, stage: oldStage } : l
+          )
         );
         toast.error('Erro ao mover lead');
       }
@@ -1605,15 +1620,24 @@ export default function PipelinePage() {
     const newStageId = targetActiveStage.id;
     if (newStageId === activeLead.stageId) return;
 
+    const oldStage = activeLead.stage;
     const oldStageId = activeLead.stageId;
+    const newStage = findStage(activeLead.pipelineId, newStageId);
     setLeads((prev) =>
-      prev.map((l) => (l.id === activeLeadId ? { ...l, stageId: newStageId } : l))
+      prev.map((l) =>
+        l.id === activeLeadId
+          ? { ...l, stageId: newStageId, stage: newStage || l.stage }
+          : l
+      )
     );
     try {
-      await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId });
+      const { data } = await api.patch(`/leads/${activeLeadId}/move`, { stageId: newStageId });
+      setLeads((prev) => prev.map((l) => (l.id === activeLeadId ? data : l)));
     } catch {
       setLeads((prev) =>
-        prev.map((l) => (l.id === activeLeadId ? { ...l, stageId: oldStageId } : l))
+        prev.map((l) =>
+          l.id === activeLeadId ? { ...l, stageId: oldStageId, stage: oldStage } : l
+        )
       );
       toast.error('Erro ao mover lead');
     }
