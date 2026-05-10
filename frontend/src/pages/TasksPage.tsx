@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent,
@@ -15,6 +15,8 @@ import api, { Task, User, Lead, Tag as TagType, Pipeline, Stage } from '../lib/a
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 import { useAuthStore } from '../store';
+import { useDragScroll, useScrollButton } from '../lib/useDragScroll';
+import MouseSettingsButton from '../components/MouseSettingsButton';
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: 'Pendente',
@@ -643,6 +645,9 @@ function AgendaView({
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [activeId, setActiveId] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollButton] = useScrollButton();
+  useDragScroll(scrollRef, scrollButton);
 
   const tasksByCol: Record<AgendaCol, Task[]> = {
     overdue: [], today: [], tomorrow: [], thisWeek: [], thisMonth: [], future: [],
@@ -666,7 +671,7 @@ function AgendaView({
 
   return (
     <DndContext sensors={sensors} onDragStart={(e) => setActiveId(e.active.id as string)} onDragEnd={handleDragEnd}>
-      <div className="flex gap-3 p-4 h-full overflow-x-auto">
+      <div ref={scrollRef} className="flex gap-3 p-4 h-full overflow-auto">
         {AGENDA_COLUMNS.map((c) => (
           <AgendaColumn
             key={c.key}
@@ -700,8 +705,11 @@ function KanbanView({ tasks, onEdit }: { tasks: Task[]; onEdit: (t: Task) => voi
     { key: 'COMPLETED', label: 'Concluida' },
     { key: 'CANCELLED', label: 'Cancelada' },
   ];
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollButton] = useScrollButton();
+  useDragScroll(scrollRef, scrollButton);
   return (
-    <div className="flex gap-3 p-4 h-full overflow-x-auto">
+    <div ref={scrollRef} className="flex gap-3 p-4 h-full overflow-auto">
       {cols.map((col) => {
         const colTasks = tasks.filter((t) => t.status === col.key);
         const colColor = STATUS_COLORS[col.key]?.fg || 'var(--text-secondary)';
@@ -1057,6 +1065,7 @@ export default function TasksPage() {
           <button onClick={() => setShowTagsManager(true)} className="btn py-2 px-3" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>
             <TagsIcon size={14} /> Tags
           </button>
+          <MouseSettingsButton />
           <button onClick={handleExportCSV} className="btn py-2 px-3" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>
             <Download size={14} /> Exportar
           </button>
