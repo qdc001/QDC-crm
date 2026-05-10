@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -18,10 +18,71 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, MoreVertical, Phone, Mail, Calendar, DollarSign,
-  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings,
+  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse,
 } from 'lucide-react';
 import api, { Lead, Pipeline, Stage } from '../lib/api';
 import toast from 'react-hot-toast';
+
+// ============== Hook: pan-scroll com botao do rato ==============
+// scrollButton: 0 = esquerdo, 1 = meio, 2 = direito; -1 = desactivado
+function useDragScroll(ref: React.RefObject<HTMLElement | null>, scrollButton: number) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || scrollButton < 0) return;
+
+    let isPanning = false;
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== scrollButton) return;
+      // ignorar se clicou num lead card (deixa o dnd-kit funcionar)
+      const target = e.target as HTMLElement;
+      if (target.closest('[data-lead-card="true"]')) return;
+      // ignorar se clicou em botoes/inputs/links
+      if (target.closest('button, input, select, textarea, a')) return;
+
+      isPanning = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = el.scrollLeft;
+      startTop = el.scrollTop;
+      el.style.cursor = 'grabbing';
+      el.style.userSelect = 'none';
+      if (scrollButton !== 0) e.preventDefault();
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isPanning) return;
+      el.scrollLeft = startLeft - (e.clientX - startX);
+      el.scrollTop = startTop - (e.clientY - startY);
+    };
+
+    const stop = () => {
+      if (!isPanning) return;
+      isPanning = false;
+      el.style.cursor = '';
+      el.style.userSelect = '';
+    };
+
+    const onContextMenu = (e: MouseEvent) => {
+      if (scrollButton === 2) e.preventDefault();
+    };
+
+    el.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', stop);
+    window.addEventListener('mouseleave', stop);
+    el.addEventListener('contextmenu', onContextMenu);
+
+    return () => {
+      el.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', stop);
+      window.removeEventListener('mouseleave', stop);
+      el.removeEventListener('contextmenu', onContextMenu);
+    };
+  }, [ref, scrollButton]);
+}
 
 // ============== Lead Card ==============
 function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
@@ -48,6 +109,7 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
       {...attributes}
       {...listeners}
       onClick={onClick}
+      data-lead-card="true"
       className="card p-3 mb-2 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
     >
       <div className="flex items-start justify-between mb-2">
@@ -616,6 +678,18 @@ export default function PipelinePage() {
   const [addingToStage, setAddingToStage] = useState<string | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [managingStages, setManagingStages] = useState(false);
+  const [showMouseSettings, setShowMouseSettings] = useState(false);
+  const [scrollButton, setScrollButton] = useState<number>(() => {
+    const saved = localStorage.getItem('kommo:scrollButton');
+    return saved !== null ? parseInt(saved, 10) : 1; // default: meio
+  });
+
+  const boardRef = useRef<HTMLDivElement>(null);
+  useDragScroll(boardRef, scrollButton);
+
+  useEffect(() => {
+    localStorage.setItem('kommo:scrollButton', String(scrollButton));
+  }, [scrollButton]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -754,6 +828,49 @@ export default function PipelinePage() {
           <span>Gerir Etapas</span>
         </button>
 
+        <div className="relative">
+          <button
+            onClick={() => setShowMouseSettings((v) => !v)}
+            className="btn"
+            style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+            title="Configurar pan-scroll"
+          >
+            <Mouse size={14} />
+            <span>Rato</span>
+          </button>
+          {showMouseSettings && (
+            <div
+              className="absolute top-full mt-2 left-0 z-40 card p-2 w-56"
+              style={{ background: 'var(--surface)' }}
+            >
+              <p className="text-xs px-2 py-1" style={{ color: 'var(--text-muted)' }}>
+                Botao do rato para mover a vista
+              </p>
+              {[
+                { v: -1, label: 'Desactivado' },
+                { v: 0, label: 'Esquerdo (cuidado: usa-se p/ cards)' },
+                { v: 1, label: 'Meio (roda)' },
+                { v: 2, label: 'Direito' },
+              ].map((opt) => (
+                <button
+                  key={opt.v}
+                  onClick={() => {
+                    setScrollButton(opt.v);
+                    setShowMouseSettings(false);
+                  }}
+                  className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-slate-100"
+                  style={{
+                    color: 'var(--text-primary)',
+                    background: scrollButton === opt.v ? 'var(--primary-light)' : 'transparent',
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="ml-auto flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
           <span>Total: <strong style={{ color: 'var(--text-primary)' }}>{leads.length}</strong> leads</span>
           <span>•</span>
@@ -766,7 +883,7 @@ export default function PipelinePage() {
       </div>
 
       {/* Kanban board */}
-      <div className="flex-1 overflow-x-auto p-4" style={{ background: 'var(--surface-2)' }}>
+      <div ref={boardRef} className="flex-1 overflow-auto p-4" style={{ background: 'var(--surface-2)' }}>
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
