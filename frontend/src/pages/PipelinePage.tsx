@@ -85,9 +85,9 @@ function useDragScroll(ref: React.RefObject<HTMLElement | null>, scrollButton: n
 }
 
 // ============== Lead Card ==============
-function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+function LeadCard({ lead, onClick, external = false }: { lead: Lead; onClick: () => void; external?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: lead.id });
+    useSortable({ id: lead.id, disabled: external });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -106,12 +106,24 @@ function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
+      {...(external ? {} : attributes)}
+      {...(external ? {} : listeners)}
       onClick={onClick}
       data-lead-card="true"
-      className="card p-3 mb-2 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
+      className={`card p-3 mb-2 hover:shadow-md transition-shadow ${external ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
     >
+      {external && lead.pipeline && (
+        <div className="mb-1.5">
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center gap-1 font-medium"
+            style={{ background: lead.pipeline.color + '22', color: lead.pipeline.color }}
+            title={`Pipeline: ${lead.pipeline.name}`}
+          >
+            <Layers size={10} /> {lead.pipeline.name}
+          </span>
+        </div>
+      )}
+
       <div className="flex items-start justify-between mb-2">
         <h4 className="text-sm font-medium flex-1" style={{ color: 'var(--text-primary)' }}>
           {lead.title}
@@ -160,11 +172,13 @@ function StageColumn({
   leads,
   onAddLead,
   onLeadClick,
+  isExternal,
 }: {
   stage: Stage;
   leads: Lead[];
   onAddLead: (stageId: string) => void;
   onLeadClick: (lead: Lead) => void;
+  isExternal?: (lead: Lead) => boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   const totalValue = leads.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
@@ -216,7 +230,12 @@ function StageColumn({
       >
         <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
           {leads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} onClick={() => onLeadClick(lead)} />
+            <LeadCard
+              key={lead.id}
+              lead={lead}
+              onClick={() => onLeadClick(lead)}
+              external={isExternal ? isExternal(lead) : false}
+            />
           ))}
         </SortableContext>
 
@@ -920,18 +939,39 @@ export default function PipelinePage() {
   }, []);
 
   // Load leads when pipeline changes
+  // Pipeline padrao (isDefault) agrega leads de TODOS os pipelines do workspace
+  const isAggregated = activePipeline?.isDefault === true;
   useEffect(() => {
-    if (!activePipelineId) return;
+    if (!activePipelineId || !activePipeline) return;
     const loadLeads = async () => {
       try {
-        const { data } = await api.get(`/leads?pipelineId=${activePipelineId}&limit=200`);
+        const url = isAggregated
+          ? `/leads?limit=500`
+          : `/leads?pipelineId=${activePipelineId}&limit=200`;
+        const { data } = await api.get(url);
         setLeads(data.leads || []);
       } catch {
         toast.error('Erro ao carregar leads');
       }
     };
     loadLeads();
-  }, [activePipelineId]);
+  }, [activePipelineId, isAggregated]);
+
+  // Mapeia o lead para a coluna correcta no Pipeline Principal (vista agregada)
+  const mapToColumnStageId = (lead: Lead): string | null => {
+    if (!isAggregated || !activePipeline) return lead.stageId;
+    if (lead.pipelineId === activePipelineId) return lead.stageId;
+    const principalRegular = activePipeline.stages
+      .filter((s) => s.type === 'REGULAR')
+      .sort((a, b) => a.position - b.position);
+    const wonId = activePipeline.stages.find((s) => s.type === 'WON')?.id;
+    const lostId = activePipeline.stages.find((s) => s.type === 'LOST')?.id;
+    if (lead.stage?.type === 'WON') return wonId || null;
+    if (lead.stage?.type === 'LOST') return lostId || null;
+    if (principalRegular.length === 0) return null;
+    const idx = Math.min(Math.max(0, lead.stage?.position ?? 0), principalRegular.length - 1);
+    return principalRegular[idx].id;
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     const lead = leads.find((l) => l.id === event.active.id);
@@ -948,6 +988,12 @@ export default function PipelinePage() {
 
     const activeLead = leads.find((l) => l.id === activeLeadId);
     if (!activeLead) return;
+
+    // Na vista agregada nao se podem mover leads de outros pipelines
+    if (isAggregated && activeLead.pipelineId !== activePipelineId) {
+      toast('Para mover este lead, abre o pipeline original', { icon: 'ℹ️' });
+      return;
+    }
 
     let newStageId: string | null = null;
 
@@ -1001,7 +1047,7 @@ export default function PipelinePage() {
   return (
     <div className="flex flex-col h-full">
       {/* Top bar */}
-      <div className="flex items-center gap-4 p-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
+      <div className="flex items-center gap-4 p-4 flex-shrink-0 flex-wrap" style={{ borderBottom: '1px solid var(--border)' }}>
         <h1 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
           Pipeline
         </h1>
@@ -1013,9 +1059,22 @@ export default function PipelinePage() {
           style={{ width: 'auto', minWidth: 200 }}
         >
           {pipelines.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+            <option key={p.id} value={p.id}>
+              {p.name}{p.isDefault ? ' (vista agregada)' : ''}
+            </option>
           ))}
         </select>
+
+        {isAggregated && (
+          <span
+            className="text-xs px-2 py-1 rounded font-medium"
+            style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+            title="Mostra leads de todos os pipelines"
+          >
+            <Layers size={11} className="inline mr-1" />
+            A mostrar todos os pipelines
+          </span>
+        )}
 
         <button
           onClick={() => setManagingPipelines(true)}
@@ -1104,9 +1163,10 @@ export default function PipelinePage() {
               <StageColumn
                 key={stage.id}
                 stage={stage}
-                leads={leads.filter((l) => l.stageId === stage.id)}
+                leads={leads.filter((l) => mapToColumnStageId(l) === stage.id)}
                 onAddLead={setAddingToStage}
                 onLeadClick={setSelectedLead}
+                isExternal={(lead) => isAggregated && lead.pipelineId !== activePipelineId}
               />
             ))}
           </div>
