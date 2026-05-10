@@ -15,6 +15,7 @@ import api, {
   TeamMemberStats, LeadSourceStat, ConversionStats, GoalProgress, GoalType, HeatmapDay,
 } from '../lib/api';
 import { useAuthStore } from '../store';
+import toast from 'react-hot-toast';
 
 function greeting(name?: string) {
   const h = new Date().getHours();
