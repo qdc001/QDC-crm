@@ -352,18 +352,19 @@ export default function LeadsPage() {
           ))}
         </select>
 
-        <select
-          value={stageId}
-          onChange={(e) => setStageId(e.target.value)}
-          className="input-base"
-          style={{ width: 'auto', minWidth: 140 }}
-          disabled={!activePipeline}
-        >
-          <option value="">{activePipeline ? 'Todas etapas' : 'Escolhe pipeline'}</option>
-          {activePipeline?.stages?.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
+        {activePipeline && (
+          <select
+            value={stageId}
+            onChange={(e) => setStageId(e.target.value)}
+            className="input-base"
+            style={{ width: 'auto', minWidth: 140 }}
+          >
+            <option value="">Todas etapas</option>
+            {activePipeline.stages?.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        )}
 
         <select value={status} onChange={(e) => setStatus(e.target.value)} className="input-base" style={{ width: 'auto', minWidth: 110 }}>
           <option value="">Todos estados</option>
