@@ -65,6 +65,35 @@ export interface AuditLog {
   userName?: string | null;
 }
 
+export interface Broadcast {
+  id: string;
+  name: string;
+  channel: string;
+  message?: string;
+  templateName?: string;
+  status: 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
+  totalRecipients: number;
+  sentCount: number;
+  deliveredCount: number;
+  readCount: number;
+  failedCount: number;
+  scheduledAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  createdBy?: { id: string; name: string };
+  _count?: { recipients: number };
+  recipients?: Array<{
+    id: string;
+    contactId?: string;
+    contact?: { id: string; firstName: string; lastName?: string; whatsapp?: string };
+    phone: string;
+    status: string;
+    error?: string;
+    sentAt?: string;
+  }>;
+}
+
 export interface Workspace {
   id: string;
   name: string;

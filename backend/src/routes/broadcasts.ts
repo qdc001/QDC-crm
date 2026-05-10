@@ -177,6 +177,20 @@ async function processBroadcast(broadcast: any, integration: any, workspaceId: s
   });
 }
 
+// DELETE /api/broadcasts/:id
+router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const broadcast = await prisma.broadcast.findFirst({
+      where: { id: req.params.id, workspaceId: req.user!.workspaceId },
+    });
+    if (!broadcast) throw new AppError('Broadcast não encontrado', 404);
+    if (broadcast.status === 'SENDING') throw new AppError('Não podes eliminar um broadcast a enviar', 400);
+    await prisma.broadcastRecipient.deleteMany({ where: { broadcastId: req.params.id } });
+    await prisma.broadcast.delete({ where: { id: req.params.id } });
+    res.json({ message: 'Broadcast eliminado' });
+  } catch (e) { next(e); }
+});
+
 // GET /api/broadcasts/:id/stats
 router.get('/:id/stats', async (req: AuthRequest, res: Response, next) => {
   try {
