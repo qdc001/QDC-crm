@@ -337,6 +337,9 @@ export default function InboxPage() {
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [editingContent, setEditingContent] = useState('');
+  const [attachment, setAttachment] = useState<{ url: string; name: string; mimeType: string; size: number } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Modais
   const [newMessageOpen, setNewMessageOpen] = useState(false);
@@ -453,23 +456,52 @@ export default function InboxPage() {
   };
 
   const sendMessage = async () => {
-    if (!draft.trim() || !selected) return;
+    if ((!draft.trim() && !attachment) || !selected) return;
     setSending(true);
     try {
+      const apiBase = (import.meta.env as any).VITE_API_URL || '';
       const { data } = await api.post('/messages', {
-        content: draft.trim(),
+        content: draft.trim() || attachment?.name || 'Anexo',
         channel: isInternalNote ? 'INTERNAL' : selected.channel,
         contactId: selected.contact?.id,
         leadId: selected.leadId,
         replyToId: replyTo?.id,
         isInternal: isInternalNote,
+        type: attachment ? (attachment.mimeType.startsWith('image/') ? 'IMAGE' : attachment.mimeType.startsWith('video/') ? 'VIDEO' : attachment.mimeType.startsWith('audio/') ? 'AUDIO' : 'DOCUMENT') : 'TEXT',
+        mediaUrl: attachment ? `${apiBase}${attachment.url}` : undefined,
+        mediaType: attachment?.mimeType,
       });
       setMessages((p) => [...p, data]);
-      setDraft(''); setReplyTo(null);
+      setDraft(''); setReplyTo(null); setAttachment(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
       if (!isInternalNote) {
         setConversations((prev) => prev.map((c) => c.key === selected.key ? { ...c, lastMessage: data, total: c.total + 1 } : c));
       }
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro a enviar'); } finally { setSending(false); }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      toast.error('Ficheiro maior que 25 MB');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const { data } = await api.post('/files/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setAttachment({ url: data.url, name: data.name, mimeType: data.mimeType, size: data.size });
+      toast.success('Ficheiro carregado');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a carregar ficheiro');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const startEdit = (m: Message) => { setEditingMessage(m); setEditingContent(m.content); };
@@ -860,7 +892,34 @@ export default function InboxPage() {
                               </div>
                             </div>
                           ) : (
-                            <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
+                            <>
+                              {msg.mediaUrl && (
+                                <div className="mb-1">
+                                  {msg.mediaType?.startsWith('image/') ? (
+                                    <a href={msg.mediaUrl} target="_blank" rel="noreferrer">
+                                      <img src={msg.mediaUrl} alt={msg.content} className="rounded max-w-full" style={{ maxHeight: 240 }} />
+                                    </a>
+                                  ) : msg.mediaType?.startsWith('video/') ? (
+                                    <video src={msg.mediaUrl} controls className="rounded max-w-full" style={{ maxHeight: 240 }} />
+                                  ) : msg.mediaType?.startsWith('audio/') ? (
+                                    <audio src={msg.mediaUrl} controls />
+                                  ) : (
+                                    <a href={msg.mediaUrl} target="_blank" rel="noreferrer"
+                                      className="flex items-center gap-2 p-2 rounded hover:opacity-80"
+                                      style={{ background: out ? 'rgba(255,255,255,0.15)' : 'var(--surface-2)' }}>
+                                      <Paperclip size={14} />
+                                      <span className="text-xs underline">{msg.content}</span>
+                                    </a>
+                                  )}
+                                </div>
+                              )}
+                              {(!msg.mediaUrl || msg.content !== msg.content) && (
+                                <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
+                              )}
+                              {msg.mediaUrl && msg.content && !msg.mediaType?.startsWith('image/') && (
+                                <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
+                              )}
+                            </>
                           )}
                           <div className="flex items-center justify-end gap-1 mt-1 text-xs" style={{ color: out ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
                             {selected.combined && <ChannelBadge channel={msg.channel} size={9} />}
@@ -946,10 +1005,31 @@ export default function InboxPage() {
                   </button>
                 )}
               </div>
+              {/* Preview do anexo */}
+              {attachment && (
+                <div className="flex items-center gap-2 p-2 rounded mb-2" style={{ background: 'var(--surface-2)' }}>
+                  {attachment.mimeType.startsWith('image/') ? (
+                    <img src={`${(import.meta.env as any).VITE_API_URL || ''}${attachment.url}`} className="w-10 h-10 rounded object-cover" alt="" />
+                  ) : (
+                    <div className="w-10 h-10 rounded flex items-center justify-center" style={{ background: 'var(--primary-light)' }}>
+                      <Paperclip size={16} style={{ color: 'var(--primary)' }} />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{attachment.name}</p>
+                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{(attachment.size / 1024).toFixed(1)} KB</p>
+                  </div>
+                  <button onClick={() => { setAttachment(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="p-1">
+                    <X size={14} style={{ color: 'var(--text-muted)' }} />
+                  </button>
+                </div>
+              )}
+
+              <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
               <div className="flex items-end gap-2 p-3 rounded-xl"
                 style={{ border: `1px solid ${isInternalNote ? '#F59E0B' : 'var(--border)'}`, background: isInternalNote ? '#FEF3C7' : 'transparent' }}>
-                <button className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" disabled title="Anexar (em breve)">
-                  <Paperclip size={18} style={{ color: 'var(--text-muted)' }} />
+                <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" title="Anexar ficheiro">
+                  {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} style={{ color: 'var(--text-muted)' }} />}
                 </button>
                 <textarea
                   ref={draftRef}
@@ -962,8 +1042,8 @@ export default function InboxPage() {
                   rows={1}
                   disabled={sending}
                 />
-                <button onClick={sendMessage} disabled={sending || !draft.trim()} className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: isInternalNote ? '#F59E0B' : 'var(--primary)', opacity: (!draft.trim() || sending) ? 0.5 : 1 }}>
+                <button onClick={sendMessage} disabled={sending || (!draft.trim() && !attachment)} className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: isInternalNote ? '#F59E0B' : 'var(--primary)', opacity: ((!draft.trim() && !attachment) || sending) ? 0.5 : 1 }}>
                   {sending ? <Loader2 size={16} className="animate-spin text-white" /> : <Send size={16} className="text-white" />}
                 </button>
               </div>

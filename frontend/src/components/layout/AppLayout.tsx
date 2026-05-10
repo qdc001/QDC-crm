@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
 import CopilotPanel from '../ai/CopilotPanel';
+import DesktopNotifications from '../DesktopNotifications';
 import toast from 'react-hot-toast';
 import api, { Lead, Contact } from '../../lib/api';
 
@@ -323,10 +324,7 @@ export default function AppLayout() {
             </button>
 
             {/* Notifications */}
-            <button className="relative p-2 rounded-lg transition-colors hover:bg-gray-100">
-              <Bell size={18} style={{ color: 'var(--text-secondary)' }} />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full" style={{ background: 'var(--primary)' }} />
-            </button>
+            <DesktopNotifications />
 
             {/* Profile */}
             <button className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-lg transition-colors hover:bg-gray-100">
