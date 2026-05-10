@@ -202,14 +202,21 @@ export default function LeadsPage() {
     setSearch(globalSearchQuery || '');
   }, [globalSearchQuery]);
 
-  // Carregar pipelines e users (uma vez)
+  // Carregar pipelines e users (independentes para uma falha nao impedir a outra)
   useEffect(() => {
-    Promise.all([api.get('/pipelines'), api.get('/users')])
-      .then(([pRes, uRes]) => {
-        setPipelines(Array.isArray(pRes.data) ? pRes.data : []);
-        setUsers(Array.isArray(uRes.data) ? uRes.data : []);
-      })
-      .catch(() => toast.error('Erro a carregar filtros'));
+    api.get('/pipelines')
+      .then(({ data }) => setPipelines(Array.isArray(data) ? data : []))
+      .catch((err) => {
+        console.error('pipelines error:', err);
+        toast.error('Erro a carregar pipelines');
+      });
+
+    api.get('/users')
+      .then(({ data }) => setUsers(Array.isArray(data) ? data : []))
+      .catch((err) => {
+        console.error('users error:', err);
+        toast.error('Erro a carregar utilizadores');
+      });
   }, []);
 
   const activePipeline = pipelines.find((p) => p.id === pipelineId);

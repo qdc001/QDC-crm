@@ -128,8 +128,20 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response, next) 
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.id },
-      include: { workspace: true },
-      omit: { password: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        avatar: true,
+        phone: true,
+        role: true,
+        isActive: true,
+        workspaceId: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+        workspace: true,
+      },
     });
 
     if (!user) throw new AppError('Utilizador não encontrado', 404);

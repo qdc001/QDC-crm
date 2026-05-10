@@ -5,11 +5,25 @@ import { AuthRequest } from '../middleware/auth';
 const prisma = new PrismaClient();
 const router = Router();
 
+const userSelect = {
+  id: true,
+  name: true,
+  email: true,
+  avatar: true,
+  phone: true,
+  role: true,
+  isActive: true,
+  workspaceId: true,
+  lastLoginAt: true,
+  createdAt: true,
+  updatedAt: true,
+};
+
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const users = await prisma.user.findMany({
       where: { workspaceId: req.user!.workspaceId },
-      omit: { password: true },
+      select: userSelect,
       orderBy: { name: 'asc' },
     });
     res.json(users);
@@ -22,7 +36,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     const user = await prisma.user.update({
       where: { id: req.user!.id },
       data: { ...(name && { name }), ...(phone && { phone }), ...(avatar && { avatar }) },
-      omit: { password: true },
+      select: userSelect,
     });
     res.json(user);
   } catch (e) { next(e); }
