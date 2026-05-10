@@ -18,7 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, MoreVertical, Phone, Mail, Calendar, DollarSign,
-  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse,
+  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings, Mouse, Layers,
 } from 'lucide-react';
 import api, { Lead, Pipeline, Stage } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -668,6 +668,204 @@ function LeadDetailModal({
   );
 }
 
+// ============== Manage Pipelines Modal ==============
+function ManagePipelinesModal({
+  pipelines,
+  activePipelineId,
+  onClose,
+  onChanged,
+  onSwitchPipeline,
+}: {
+  pipelines: Pipeline[];
+  activePipelineId: string;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+  onSwitchPipeline: (id: string) => void;
+}) {
+  const [list, setList] = useState<Pipeline[]>(pipelines);
+  const [loading, setLoading] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newColor, setNewColor] = useState('#6366F1');
+
+  useEffect(() => {
+    setList(pipelines);
+  }, [pipelines]);
+
+  const updateField = (id: string, key: keyof Pipeline, value: any) =>
+    setList((prev) => prev.map((p) => (p.id === id ? { ...p, [key]: value } : p)));
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      await Promise.all(
+        list.map((p) => {
+          const original = pipelines.find((o) => o.id === p.id);
+          if (!original) return null;
+          if (original.name !== p.name || original.color !== p.color) {
+            return api.patch(`/pipelines/${p.id}`, { name: p.name, color: p.color });
+          }
+          return null;
+        })
+      );
+      toast.success('Pipelines actualizados');
+      await onChanged();
+      onClose();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao guardar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (pipeline: Pipeline) => {
+    if (list.length <= 1) {
+      toast.error('Tem de existir pelo menos um pipeline');
+      return;
+    }
+    if (!confirm(`Eliminar o pipeline "${pipeline.name}"? As etapas e leads associados serao removidos.`)) return;
+    try {
+      await api.delete(`/pipelines/${pipeline.id}`);
+      const remaining = list.filter((p) => p.id !== pipeline.id);
+      setList(remaining);
+      toast.success('Pipeline eliminado');
+      if (activePipelineId === pipeline.id && remaining[0]) {
+        onSwitchPipeline(remaining[0].id);
+      }
+      await onChanged();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Nao foi possivel eliminar');
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!newName.trim()) {
+      toast.error('Indica o nome do pipeline');
+      return;
+    }
+    try {
+      const { data } = await api.post('/pipelines', {
+        name: newName.trim(),
+        color: newColor,
+      });
+      setList((prev) => [...prev, data]);
+      setNewName('');
+      setNewColor('#6366F1');
+      toast.success('Pipeline criado');
+      await onChanged();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao criar pipeline');
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 p-4"
+      style={{ background: 'rgba(0,0,0,0.4)' }}
+      onClick={onClose}
+    >
+      <div
+        className="card p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+            Gerir Pipelines
+          </h3>
+          <button onClick={onClose}>
+            <X size={20} style={{ color: 'var(--text-muted)' }} />
+          </button>
+        </div>
+
+        <div className="space-y-2 mb-4">
+          {list.map((pipeline) => (
+            <div
+              key={pipeline.id}
+              className="flex items-center gap-2 p-2 rounded"
+              style={{ background: 'var(--surface-2)' }}
+            >
+              <input
+                type="color"
+                value={pipeline.color}
+                onChange={(e) => updateField(pipeline.id, 'color', e.target.value)}
+                className="w-8 h-8 rounded cursor-pointer border-0"
+                title="Cor"
+              />
+              <input
+                value={pipeline.name}
+                onChange={(e) => updateField(pipeline.id, 'name', e.target.value)}
+                className="input-base flex-1"
+              />
+              {pipeline.isDefault && (
+                <span
+                  className="text-xs px-2 py-1 rounded"
+                  style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                >
+                  Padrao
+                </span>
+              )}
+              <span
+                className="text-xs px-2 py-1 rounded"
+                style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}
+                title="Numero de etapas"
+              >
+                {pipeline.stages?.length || 0} etapas
+              </span>
+              <button
+                onClick={() => handleDelete(pipeline)}
+                className="p-2 rounded hover:bg-red-50"
+                title="Eliminar"
+                disabled={list.length <= 1}
+                style={{ opacity: list.length <= 1 ? 0.4 : 1 }}
+              >
+                <Trash2 size={16} style={{ color: '#EF4444' }} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t pt-4 mb-4" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+            Novo pipeline
+          </p>
+          <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+            Cria com 4 etapas padrao: Novo, Em Progresso, Ganho, Perdido
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={newColor}
+              onChange={(e) => setNewColor(e.target.value)}
+              className="w-8 h-8 rounded cursor-pointer border-0"
+            />
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Nome do pipeline (ex: Vendas B2B)"
+              className="input-base flex-1"
+            />
+            <button onClick={handleAdd} className="btn btn-primary py-2 px-3">
+              <Plus size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="btn flex-1 py-2"
+            style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+          >
+            Cancelar
+          </button>
+          <button onClick={handleSave} disabled={loading} className="btn btn-primary flex-1 py-2">
+            {loading ? <Loader2 size={16} className="animate-spin" /> : 'Guardar alterações'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============== Main Pipeline Page ==============
 export default function PipelinePage() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -678,6 +876,7 @@ export default function PipelinePage() {
   const [addingToStage, setAddingToStage] = useState<string | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [managingStages, setManagingStages] = useState(false);
+  const [managingPipelines, setManagingPipelines] = useState(false);
   const [showMouseSettings, setShowMouseSettings] = useState(false);
   const [scrollButton, setScrollButton] = useState<number>(() => {
     const saved = localStorage.getItem('kommo:scrollButton');
@@ -819,6 +1018,16 @@ export default function PipelinePage() {
         </select>
 
         <button
+          onClick={() => setManagingPipelines(true)}
+          className="btn"
+          style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+          title="Gerir pipelines"
+        >
+          <Layers size={14} />
+          <span>Gerir Pipelines</span>
+        </button>
+
+        <button
           onClick={() => setManagingStages(true)}
           className="btn"
           style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
@@ -934,6 +1143,16 @@ export default function PipelinePage() {
           pipeline={activePipeline}
           onClose={() => setManagingStages(false)}
           onChanged={reloadPipelines}
+        />
+      )}
+
+      {managingPipelines && (
+        <ManagePipelinesModal
+          pipelines={pipelines}
+          activePipelineId={activePipelineId}
+          onClose={() => setManagingPipelines(false)}
+          onChanged={reloadPipelines}
+          onSwitchPipeline={setActivePipelineId}
         />
       )}
     </div>
