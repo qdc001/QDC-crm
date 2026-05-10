@@ -403,12 +403,34 @@ function ImportCSVModal({ onClose, onImported }: { onClose: () => void; onImport
         </p>
 
         <div className="mb-4">
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-            className="block w-full text-sm"
-          />
+          <label
+            className="flex flex-col items-center justify-center gap-2 p-6 rounded-lg cursor-pointer transition-colors"
+            style={{
+              border: `2px dashed ${file ? 'var(--primary)' : 'var(--border)'}`,
+              background: file ? 'var(--primary-light)' : 'var(--surface-2)',
+            }}
+          >
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+              className="hidden"
+            />
+            <Upload size={24} style={{ color: file ? 'var(--primary)' : 'var(--text-muted)' }} />
+            <div className="text-center">
+              {file ? (
+                <>
+                  <p className="text-sm font-medium" style={{ color: 'var(--primary)' }}>{file.name}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{(file.size / 1024).toFixed(1)} KB · clica para mudar</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Clica para escolher um ficheiro CSV</p>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>ou arrasta o ficheiro para aqui</p>
+                </>
+              )}
+            </div>
+          </label>
         </div>
 
         {headers.length > 0 && (
