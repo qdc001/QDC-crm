@@ -355,4 +355,36 @@ router.get('/conversion-stats', async (req: AuthRequest, res: Response, next) =>
   } catch (e) { next(e); }
 });
 
+// GET /api/analytics/activity-heatmap - 90 dias, agrupado por dia
+router.get('/activity-heatmap', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const days = parseInt((req.query.days as string) || '90', 10);
+    const start = new Date(); start.setDate(start.getDate() - days);
+    start.setHours(0, 0, 0, 0);
+
+    const activities = await prisma.activity.findMany({
+      where: { lead: { workspaceId }, createdAt: { gte: start } },
+      select: { createdAt: true },
+    });
+
+    // Agrupar por dia (YYYY-MM-DD)
+    const byDay: Record<string, number> = {};
+    activities.forEach((a) => {
+      const k = a.createdAt.toISOString().slice(0, 10);
+      byDay[k] = (byDay[k] || 0) + 1;
+    });
+
+    // Construir array com todos os dias (mesmo os zeros)
+    const result: Array<{ date: string; count: number }> = [];
+    for (let i = 0; i <= days; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      const k = d.toISOString().slice(0, 10);
+      result.push({ date: k, count: byDay[k] || 0 });
+    }
+
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
 export default router;

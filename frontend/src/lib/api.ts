@@ -242,6 +242,28 @@ export interface ConversionStats {
   stagnantLeads: any[];
 }
 
+export type GoalType = 'leads_created' | 'leads_won' | 'revenue' | 'tasks_completed';
+
+export interface Goal {
+  id: string;
+  type: GoalType;
+  target: number;
+  month: number;
+  year: number;
+  userId?: string | null;
+  user?: { id: string; name: string } | null;
+}
+
+export interface GoalProgress extends Goal {
+  current: number;
+  percent: number;
+}
+
+export interface HeatmapDay {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
 export interface RevenueData {
   month: string;
   revenue: number;

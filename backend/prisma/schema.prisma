@@ -36,6 +36,7 @@ model User {
   automations      Automation[]
   pipelines        Pipeline[]
   broadcasts       Broadcast[]
+  goals            Goal[]
 
   @@map("users")
 }
@@ -69,6 +70,7 @@ model Workspace {
   templates    MessageTemplate[]
   customFields CustomField[]
   webhooks     Webhook[]
+  goals        Goal[]
 
   @@map("workspaces")
 }
@@ -673,4 +675,24 @@ model BroadcastRecipient {
   contactId   String?
 
   @@map("broadcast_recipients")
+}
+
+// ==================== GOALS / METAS ====================
+
+model Goal {
+  id          String   @id @default(cuid())
+  type        String   // "leads_created" | "leads_won" | "revenue" | "tasks_completed"
+  target      Float
+  month       Int      // 1-12
+  year        Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  user        User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String?   // null = meta da workspace inteira
+
+  @@unique([workspaceId, type, month, year, userId])
+  @@map("goals")
 }

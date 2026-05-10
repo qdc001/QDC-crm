@@ -32,6 +32,7 @@ import fileRoutes from './routes/files';
 import whatsappRoutes from './routes/whatsapp';
 import broadcastRoutes from './routes/broadcasts';
 import aiRoutes from './routes/ai';
+import goalsRoutes from './routes/goals';
 
 
 // Middleware
@@ -110,6 +111,7 @@ app.use('/api/files', authMiddleware, fileRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/broadcasts', authMiddleware, broadcastRoutes);
 app.use('/api/ai', authMiddleware, aiRoutes);
+app.use('/api/goals', authMiddleware, goalsRoutes);
 
 
 // Error handler (must be last)

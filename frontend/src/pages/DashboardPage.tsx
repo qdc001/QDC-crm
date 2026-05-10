@@ -4,7 +4,7 @@ import {
   Users, DollarSign, CheckSquare, Target, ArrowUpRight, ArrowDownRight,
   Clock, ExternalLink, AlertCircle, Activity as ActivityIcon, TrendingUp,
   Plus, Filter as FilterIcon, Printer, Trophy, Zap, Hourglass, Briefcase,
-  AlertTriangle,
+  AlertTriangle, X, Trash2, LayoutGrid, Eye, EyeOff, Flag, CalendarDays,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import api, {
   DashboardData, RevenueData, Task, Lead, Activity, User, Pipeline,
-  TeamMemberStats, LeadSourceStat, ConversionStats,
+  TeamMemberStats, LeadSourceStat, ConversionStats, GoalProgress, GoalType, HeatmapDay,
 } from '../lib/api';
 import { useAuthStore } from '../store';
 
@@ -47,6 +47,267 @@ const PERIOD_LABELS: Record<Period, string> = {
   '6m': '6 meses', '1y': '1 ano', custom: 'Personalizado',
 };
 
+const GOAL_TYPE_LABELS: Record<GoalType, string> = {
+  leads_created: 'Leads criados',
+  leads_won: 'Negocios ganhos',
+  revenue: 'Receita (MZN)',
+  tasks_completed: 'Tarefas concluidas',
+};
+
+const GOAL_TYPE_COLORS: Record<GoalType, string> = {
+  leads_created: '#6366F1',
+  leads_won: '#10B981',
+  revenue: '#0EA5E9',
+  tasks_completed: '#F59E0B',
+};
+
+// =============== Modal: Gerir Metas ===============
+function GoalsModal({ month, year, onClose, onChanged }: {
+  month: number; year: number;
+  onClose: () => void; onChanged: () => void;
+}) {
+  const [goals, setGoals] = useState<GoalProgress[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newType, setNewType] = useState<GoalType>('leads_won');
+  const [newTarget, setNewTarget] = useState('');
+
+  const load = () => {
+    setLoading(true);
+    api.get(`/goals/progress?month=${month}&year=${year}&userId=workspace`)
+      .then(({ data }) => setGoals(Array.isArray(data) ? data : []))
+      .catch(() => setGoals([]))
+      .finally(() => setLoading(false));
+  };
+  useEffect(load, [month, year]);
+
+  const handleAdd = async () => {
+    if (!newTarget) { toast.error('Indica o alvo'); return; }
+    try {
+      await api.post('/goals', {
+        type: newType, target: Number(newTarget),
+        month, year, userId: null,
+      });
+      setNewTarget('');
+      load();
+      onChanged();
+      toast.success('Meta guardada');
+    } catch { toast.error('Erro'); }
+  };
+
+  const handleUpdate = async (id: string, target: number) => {
+    try {
+      await api.patch(`/goals/${id}`, { target });
+      onChanged();
+    } catch { toast.error('Erro'); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Eliminar esta meta?')) return;
+    try {
+      await api.delete(`/goals/${id}`);
+      setGoals((p) => p.filter((g) => g.id !== id));
+      onChanged();
+      toast.success('Eliminada');
+    } catch { toast.error('Erro'); }
+  };
+
+  const monthName = new Date(year, month - 1, 1).toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+      <div className="card p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold capitalize" style={{ color: 'var(--text-primary)' }}>
+            Metas de {monthName}
+          </h3>
+          <button onClick={onClose}><X size={20} style={{ color: 'var(--text-muted)' }} /></button>
+        </div>
+
+        {loading ? (
+          <p className="text-center py-4 text-sm" style={{ color: 'var(--text-muted)' }}>A carregar...</p>
+        ) : goals.length === 0 ? (
+          <p className="text-center py-4 text-sm" style={{ color: 'var(--text-muted)' }}>Sem metas ainda</p>
+        ) : (
+          <div className="space-y-3 mb-4">
+            {goals.map((g) => (
+              <div key={g.id} className="p-3 rounded" style={{ background: 'var(--surface-2)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{GOAL_TYPE_LABELS[g.type]}</span>
+                  <button onClick={() => handleDelete(g.id)} className="p-1 rounded hover:bg-red-50">
+                    <Trash2 size={14} style={{ color: '#EF4444' }} />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 mb-1">
+                  <input
+                    type="number"
+                    defaultValue={g.target}
+                    onBlur={(e) => {
+                      const v = Number(e.target.value);
+                      if (v !== g.target) handleUpdate(g.id, v);
+                    }}
+                    className="input-base"
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span style={{ color: 'var(--text-secondary)' }}>{g.current.toLocaleString()} / {g.target.toLocaleString()}</span>
+                  <span style={{ color: GOAL_TYPE_COLORS[g.type], fontWeight: 600 }}>{g.percent}%</span>
+                </div>
+                <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+                  <div className="h-full rounded-full transition-all" style={{ width: `${g.percent}%`, background: GOAL_TYPE_COLORS[g.type] }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="border-t pt-4 mb-4 space-y-2" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Nova meta</p>
+          <select value={newType} onChange={(e) => setNewType(e.target.value as GoalType)} className="input-base">
+            {Object.entries(GOAL_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <input type="number" value={newTarget} onChange={(e) => setNewTarget(e.target.value)} placeholder="Alvo (ex: 10)" className="input-base" />
+          <button onClick={handleAdd} className="btn btn-primary w-full py-2">
+            <Plus size={14} /> Adicionar / actualizar
+          </button>
+        </div>
+
+        <button onClick={onClose} className="btn w-full py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
+      </div>
+    </div>
+  );
+}
+
+// =============== Modal: Personalizar widgets ===============
+const ALL_WIDGETS = [
+  { id: 'goals', label: 'Metas mensais' },
+  { id: 'kpis', label: 'KPIs principais' },
+  { id: 'conversion', label: 'Indicadores de conversao' },
+  { id: 'revenueChart', label: 'Grafico de receita 6m' },
+  { id: 'wonLostPie', label: 'Estado dos leads (pizza)' },
+  { id: 'funnel', label: 'Funil de conversao' },
+  { id: 'sources', label: 'Origem dos leads' },
+  { id: 'team', label: 'Performance da equipa' },
+  { id: 'pipelineDist', label: 'Distribuicao no Pipeline' },
+  { id: 'topLeads', label: 'Top leads abertos' },
+  { id: 'stagnant', label: 'Leads parados' },
+  { id: 'tasks', label: 'Proximas tarefas' },
+  { id: 'activities', label: 'Actividades recentes' },
+  { id: 'heatmap', label: 'Mapa de actividade' },
+  { id: 'overview', label: 'Cards de resumo' },
+];
+
+const HIDDEN_KEY = 'kommo:dashboard-hidden';
+
+function loadHidden(): Set<string> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+}
+
+function CustomizeModal({ hidden, onChange, onClose }: {
+  hidden: Set<string>;
+  onChange: (next: Set<string>) => void;
+  onClose: () => void;
+}) {
+  const toggle = (id: string) => {
+    const next = new Set(hidden);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    onChange(next);
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+      <div className="card p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Personalizar dashboard</h3>
+          <button onClick={onClose}><X size={20} style={{ color: 'var(--text-muted)' }} /></button>
+        </div>
+        <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+          Escolhe quais widgets queres ver no dashboard.
+        </p>
+        <div className="space-y-1">
+          {ALL_WIDGETS.map((w) => {
+            const visible = !hidden.has(w.id);
+            return (
+              <button key={w.id} onClick={() => toggle(w.id)}
+                className="w-full flex items-center justify-between p-2 rounded hover:bg-slate-50 text-left">
+                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>{w.label}</span>
+                {visible ? <Eye size={14} style={{ color: 'var(--primary)' }} /> : <EyeOff size={14} style={{ color: 'var(--text-muted)' }} />}
+              </button>
+            );
+          })}
+        </div>
+        <button onClick={onClose} className="btn w-full py-2 mt-4" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
+      </div>
+    </div>
+  );
+}
+
+// =============== Componente Heatmap ===============
+function HeatmapView({ data }: { data: HeatmapDay[] }) {
+  if (data.length === 0) {
+    return <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>Sem actividade ainda</p>;
+  }
+  const max = Math.max(...data.map((d) => d.count), 1);
+  const colorFor = (c: number) => {
+    if (c === 0) return 'var(--surface-3)';
+    const intensity = c / max;
+    if (intensity < 0.25) return '#C7D2FE';
+    if (intensity < 0.5) return '#A5B4FC';
+    if (intensity < 0.75) return '#818CF8';
+    return '#6366F1';
+  };
+
+  // Reorganizar por semanas: cada coluna e uma semana, 7 linhas (dom-sab)
+  // Comecar pela primeira semana
+  const weeks: HeatmapDay[][] = [];
+  let currentWeek: HeatmapDay[] = [];
+  data.forEach((d) => {
+    const day = new Date(d.date).getDay(); // 0 = dom
+    if (currentWeek.length === 0 && day !== 1) {
+      // preencher inicio da semana com nulos para alinhar (semana comeca na segunda)
+      const offset = (day + 6) % 7; // 0 = seg, ...6 = dom
+      for (let i = 0; i < offset; i++) currentWeek.push({ date: '', count: -1 });
+    }
+    currentWeek.push(d);
+    if (currentWeek.length === 7) {
+      weeks.push(currentWeek);
+      currentWeek = [];
+    }
+  });
+  if (currentWeek.length > 0) weeks.push(currentWeek);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex gap-0.5 overflow-x-auto pb-2">
+        {weeks.map((week, wi) => (
+          <div key={wi} className="flex flex-col gap-0.5">
+            {week.map((d, i) => (
+              <div
+                key={i}
+                className="w-3 h-3 rounded-sm"
+                style={{ background: d.count < 0 ? 'transparent' : colorFor(d.count) }}
+                title={d.count >= 0 ? `${d.date}: ${d.count} actividades` : ''}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+        <span>Menos</span>
+        <div className="w-3 h-3 rounded-sm" style={{ background: 'var(--surface-3)' }} />
+        <div className="w-3 h-3 rounded-sm" style={{ background: '#C7D2FE' }} />
+        <div className="w-3 h-3 rounded-sm" style={{ background: '#A5B4FC' }} />
+        <div className="w-3 h-3 rounded-sm" style={{ background: '#818CF8' }} />
+        <div className="w-3 h-3 rounded-sm" style={{ background: '#6366F1' }} />
+        <span>Mais</span>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
@@ -69,7 +330,22 @@ export default function DashboardPage() {
   const [team, setTeam] = useState<TeamMemberStats[]>([]);
   const [sources, setSources] = useState<LeadSourceStat[]>([]);
   const [convStats, setConvStats] = useState<ConversionStats | null>(null);
+  const [goals, setGoals] = useState<GoalProgress[]>([]);
+  const [heatmap, setHeatmap] = useState<HeatmapDay[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Personalizacao
+  const [hidden, setHidden] = useState<Set<string>>(loadHidden);
+  const [showCustomize, setShowCustomize] = useState(false);
+  const [showGoalsModal, setShowGoalsModal] = useState(false);
+  useEffect(() => {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify(Array.from(hidden)));
+  }, [hidden]);
+  const visible = (id: string) => !hidden.has(id);
+
+  const now = new Date();
+  const goalMonth = now.getMonth() + 1;
+  const goalYear = now.getFullYear();
 
   // Carregar listas auxiliares uma vez
   useEffect(() => {
@@ -99,8 +375,10 @@ export default function DashboardPage() {
       api.get(`/analytics/team-performance${q}`),
       api.get(`/analytics/lead-sources${q}`),
       api.get(`/analytics/conversion-stats${q}`),
+      api.get(`/analytics/activity-heatmap?days=90`),
+      api.get(`/goals/progress?month=${goalMonth}&year=${goalYear}&userId=workspace`),
     ])
-      .then(([d, r, t, l, tm, s, c]) => {
+      .then(([d, r, t, l, tm, s, c, hm, g]) => {
         setDashboard(d.data);
         setRevenue(Array.isArray(r.data) ? r.data : []);
         setUpcomingTasks(Array.isArray(t.data) ? t.data : []);
@@ -108,10 +386,18 @@ export default function DashboardPage() {
         setTeam(Array.isArray(tm.data) ? tm.data : []);
         setSources(Array.isArray(s.data) ? s.data : []);
         setConvStats(c.data);
+        setHeatmap(Array.isArray(hm.data) ? hm.data : []);
+        setGoals(Array.isArray(g.data) ? g.data : []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [period, customFrom, customTo, pipelineId, assignedToId]);
+
+  const reloadGoals = () => {
+    api.get(`/goals/progress?month=${goalMonth}&year=${goalYear}&userId=workspace`)
+      .then(({ data }) => setGoals(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  };
 
   if (loading && !dashboard) {
     return (
@@ -183,6 +469,9 @@ export default function DashboardPage() {
             style={{ background: showFilters ? 'var(--primary)' : 'var(--surface-3)', color: showFilters ? '#fff' : 'var(--text-primary)' }}>
             <FilterIcon size={14} /> Filtros
           </button>
+          <button onClick={() => setShowCustomize(true)} className="btn py-2 px-3" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }} title="Personalizar widgets">
+            <LayoutGrid size={14} /> Personalizar
+          </button>
         </div>
       </div>
 
@@ -226,7 +515,51 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Goals / Metas */}
+      {visible('goals') && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+              <Flag size={16} style={{ color: '#F59E0B' }} />
+              Metas do mes
+              <span className="text-xs font-normal capitalize" style={{ color: 'var(--text-muted)' }}>
+                ({new Date(goalYear, goalMonth - 1, 1).toLocaleDateString('pt-PT', { month: 'long' })})
+              </span>
+            </h3>
+            <button onClick={() => setShowGoalsModal(true)} className="btn py-1.5 px-3 print:hidden" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
+              <Flag size={12} /> Gerir metas
+            </button>
+          </div>
+          {goals.length === 0 ? (
+            <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>
+              Sem metas definidas. <button onClick={() => setShowGoalsModal(true)} className="hover:underline print:hidden" style={{ color: 'var(--primary)' }}>Definir metas</button>
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {goals.map((g) => (
+                <div key={g.id} className="p-3 rounded" style={{ background: 'var(--surface-2)' }}>
+                  <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>{GOAL_TYPE_LABELS[g.type]}</p>
+                  <div className="flex items-baseline justify-between mb-2">
+                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                      {g.current.toLocaleString()}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      / {g.target.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden mb-1" style={{ background: 'var(--surface-3)' }}>
+                    <div className="h-full rounded-full transition-all" style={{ width: `${g.percent}%`, background: GOAL_TYPE_COLORS[g.type] }} />
+                  </div>
+                  <p className="text-xs text-right font-medium" style={{ color: GOAL_TYPE_COLORS[g.type] }}>{g.percent}%</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Stat cards */}
+      {visible('kpis') && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card) => {
           const Icon = card.icon;
@@ -253,9 +586,10 @@ export default function DashboardPage() {
           );
         })}
       </div>
+      )}
 
       {/* Indicadores de conversao + forecast */}
-      {convStats && (
+      {visible('conversion') && convStats && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-1">
@@ -298,7 +632,9 @@ export default function DashboardPage() {
       )}
 
       {/* Charts row 1 */}
+      {(visible('revenueChart') || visible('wonLostPie')) && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {visible('revenueChart') && (
         <div className="card p-5 lg:col-span-2">
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
             <TrendingUp size={16} style={{ color: 'var(--primary)' }} />
@@ -318,7 +654,9 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </div>
+        )}
 
+        {visible('wonLostPie') && (
         <div className="card p-5">
           <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Estado dos leads</h3>
           {wonLostData.length === 0 ? (
@@ -335,10 +673,14 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </div>
+        )}
       </div>
+      )}
 
       {/* Funil + Origens */}
+      {(visible('funnel') || visible('sources')) && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {visible('funnel') && (
         <div className="card p-5">
           <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Funil de conversao</h3>
           {funnelData.length === 0 || funnelData.every((f) => f.value === 0) ? (
@@ -369,7 +711,9 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+        )}
 
+        {visible('sources') && (
         <div className="card p-5">
           <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Origem dos leads</h3>
           {sources.length === 0 ? (
@@ -393,9 +737,12 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+        )}
       </div>
+      )}
 
       {/* Performance da equipa */}
+      {visible('team') && (
       <div className="card p-5">
         <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
           <Trophy size={16} style={{ color: '#F59E0B' }} />
@@ -451,9 +798,23 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+      )}
+
+      {/* Heatmap */}
+      {visible('heatmap') && (
+        <div className="card p-5">
+          <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+            <CalendarDays size={16} style={{ color: 'var(--primary)' }} />
+            Mapa de actividade (ultimos 90 dias)
+          </h3>
+          <HeatmapView data={heatmap} />
+        </div>
+      )}
 
       {/* Pipeline + top leads */}
+      {(visible('pipelineDist') || visible('topLeads')) && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {visible('pipelineDist') && (
         <div className="card p-5">
           <h3 className="font-semibold mb-4" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Distribuicao no Pipeline</h3>
           {dashboard.pipeline.length === 0 ? (
@@ -478,7 +839,9 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+        )}
 
+        {visible('topLeads') && (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
@@ -511,10 +874,12 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+        )}
       </div>
+      )}
 
       {/* Leads parados */}
-      {convStats && convStats.stagnantLeads.length > 0 && (
+      {visible('stagnant') && convStats && convStats.stagnantLeads.length > 0 && (
         <div className="card p-5" style={{ borderLeft: '4px solid #EF4444' }}>
           <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: '#991B1B' }}>
             <AlertTriangle size={16} /> Leads parados (sem actividade ha mais de 14 dias)
@@ -537,7 +902,9 @@ export default function DashboardPage() {
       )}
 
       {/* Tarefas + Actividades */}
+      {(visible('tasks') || visible('activities')) && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {visible('tasks') && (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
@@ -568,7 +935,9 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+        )}
 
+        {visible('activities') && (
         <div className="card p-5">
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
             <ActivityIcon size={16} style={{ color: 'var(--primary)' }} />
@@ -597,9 +966,12 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+        )}
       </div>
+      )}
 
       {/* Overview cards */}
+      {visible('overview') && (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
           { label: 'Total Leads', value: o.totalLeads, color: '#6366F1' },
@@ -617,6 +989,10 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+      )}
+
+      {showCustomize && <CustomizeModal hidden={hidden} onChange={setHidden} onClose={() => setShowCustomize(false)} />}
+      {showGoalsModal && <GoalsModal month={goalMonth} year={goalYear} onClose={() => setShowGoalsModal(false)} onChanged={reloadGoals} />}
     </div>
   );
 }
