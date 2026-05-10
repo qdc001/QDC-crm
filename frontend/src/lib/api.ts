@@ -118,10 +118,32 @@ export interface Message {
   channel: string;
   status: string;
   mediaUrl?: string;
+  mediaType?: string;
+  readAt?: string | null;
   createdAt: string;
   sentBy?: User;
   leadId?: string;
   contactId?: string;
+  contact?: { id: string; firstName: string; lastName?: string };
+}
+
+export interface Conversation {
+  key: string;
+  contact: {
+    id: string;
+    firstName: string;
+    lastName?: string;
+    phone?: string;
+    whatsapp?: string;
+    email?: string;
+    avatar?: string;
+    type: 'PERSON' | 'COMPANY';
+  } | null;
+  leadId: string | null;
+  channel: string;
+  lastMessage: Message;
+  unread: number;
+  total: number;
 }
 
 export interface Task {
