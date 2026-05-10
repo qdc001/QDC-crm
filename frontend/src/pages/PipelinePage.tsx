@@ -8,6 +8,7 @@ import {
   useSensor,
   useSensors,
   closestCorners,
+  useDroppable,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -17,7 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, MoreVertical, Phone, Mail, Calendar, DollarSign,
-  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3,
+  User as UserIcon, Tag as TagIcon, X, Loader2, Trash2, Edit3, Settings,
 } from 'lucide-react';
 import api, { Lead, Pipeline, Stage } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -103,6 +104,7 @@ function StageColumn({
   onAddLead: (stageId: string) => void;
   onLeadClick: (lead: Lead) => void;
 }) {
+  const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   const totalValue = leads.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
 
   return (
@@ -139,10 +141,16 @@ function StageColumn({
         </button>
       </div>
 
-      {/* Cards */}
+      {/* Cards (drop zone) */}
       <div
-        className="flex-1 overflow-y-auto p-2 rounded-b-lg"
-        style={{ background: 'var(--surface-2)', minHeight: 200 }}
+        ref={setNodeRef}
+        className="flex-1 overflow-y-auto p-2 rounded-b-lg transition-colors"
+        style={{
+          background: isOver ? stage.color + '22' : 'var(--surface-2)',
+          minHeight: 200,
+          outline: isOver ? `2px dashed ${stage.color}` : 'none',
+          outlineOffset: -2,
+        }}
       >
         <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
           {leads.map((lead) => (
@@ -165,6 +173,182 @@ function StageColumn({
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============== Manage Stages Modal ==============
+const STAGE_COLORS = ['#6B7280', '#3B82F6', '#8B5CF6', '#F59E0B', '#10B981', '#EF4444', '#EC4899', '#14B8A6', '#F97316', '#06B6D4'];
+
+function ManageStagesModal({
+  pipeline,
+  onClose,
+  onChanged,
+}: {
+  pipeline: Pipeline;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [stages, setStages] = useState<Stage[]>(pipeline.stages);
+  const [loading, setLoading] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newColor, setNewColor] = useState(STAGE_COLORS[0]);
+
+  const updateField = (id: string, key: keyof Stage, value: any) =>
+    setStages((prev) => prev.map((s) => (s.id === id ? { ...s, [key]: value } : s)));
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      // Atualiza cada etapa modificada
+      await Promise.all(
+        stages.map((s) => {
+          const original = pipeline.stages.find((o) => o.id === s.id);
+          if (!original) return null;
+          if (original.name !== s.name || original.color !== s.color) {
+            return api.patch(`/stages/${s.id}`, { name: s.name, color: s.color });
+          }
+          return null;
+        })
+      );
+      toast.success('Etapas actualizadas');
+      onChanged();
+      onClose();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao guardar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (stage: Stage) => {
+    if (!confirm(`Eliminar a etapa "${stage.name}"? Os leads nesta etapa precisam de ser movidos primeiro.`)) return;
+    try {
+      await api.delete(`/stages/${stage.id}`);
+      setStages((prev) => prev.filter((s) => s.id !== stage.id));
+      toast.success('Etapa eliminada');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Nao foi possivel eliminar (talvez tenha leads)');
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!newName.trim()) {
+      toast.error('Indica o nome da etapa');
+      return;
+    }
+    try {
+      const { data } = await api.post('/stages', {
+        name: newName.trim(),
+        color: newColor,
+        pipelineId: pipeline.id,
+        position: stages.length,
+      });
+      setStages((prev) => [...prev, data]);
+      setNewName('');
+      setNewColor(STAGE_COLORS[0]);
+      toast.success('Etapa adicionada');
+      onChanged();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao adicionar');
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 p-4"
+      style={{ background: 'rgba(0,0,0,0.4)' }}
+      onClick={onClose}
+    >
+      <div
+        className="card p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+            Gerir Etapas
+          </h3>
+          <button onClick={onClose}>
+            <X size={20} style={{ color: 'var(--text-muted)' }} />
+          </button>
+        </div>
+
+        <div className="space-y-2 mb-4">
+          {stages.map((stage) => (
+            <div
+              key={stage.id}
+              className="flex items-center gap-2 p-2 rounded"
+              style={{ background: 'var(--surface-2)' }}
+            >
+              <input
+                type="color"
+                value={stage.color}
+                onChange={(e) => updateField(stage.id, 'color', e.target.value)}
+                className="w-8 h-8 rounded cursor-pointer border-0"
+                title="Cor"
+              />
+              <input
+                value={stage.name}
+                onChange={(e) => updateField(stage.id, 'name', e.target.value)}
+                className="input-base flex-1"
+              />
+              <span
+                className="text-xs px-2 py-1 rounded"
+                style={{
+                  background: stage.type === 'WON' ? '#D1FAE5' : stage.type === 'LOST' ? '#FEE2E2' : 'var(--surface-3)',
+                  color: stage.type === 'WON' ? '#065F46' : stage.type === 'LOST' ? '#991B1B' : 'var(--text-muted)',
+                }}
+              >
+                {stage.type}
+              </span>
+              <button
+                onClick={() => handleDelete(stage)}
+                className="p-2 rounded hover:bg-red-50"
+                title="Eliminar"
+              >
+                <Trash2 size={16} style={{ color: '#EF4444' }} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t pt-4 mb-4" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+            Nova etapa
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={newColor}
+              onChange={(e) => setNewColor(e.target.value)}
+              className="w-8 h-8 rounded cursor-pointer border-0"
+            />
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Nome da etapa"
+              className="input-base flex-1"
+            />
+            <button onClick={handleAdd} className="btn btn-primary py-2 px-3">
+              <Plus size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="btn flex-1 py-2"
+            style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+          >
+            Cancelar
+          </button>
+          <button onClick={handleSave} disabled={loading} className="btn btn-primary flex-1 py-2">
+            {loading ? <Loader2 size={16} className="animate-spin" /> : 'Guardar alterações'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -431,10 +615,20 @@ export default function PipelinePage() {
   const [activeDragLead, setActiveDragLead] = useState<Lead | null>(null);
   const [addingToStage, setAddingToStage] = useState<string | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [managingStages, setManagingStages] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const activePipeline = pipelines.find((p) => p.id === activePipelineId);
+
+  const reloadPipelines = async () => {
+    try {
+      const { data } = await api.get('/pipelines');
+      setPipelines(data);
+    } catch {
+      toast.error('Erro ao recarregar pipelines');
+    }
+  };
 
   // Load pipelines
   useEffect(() => {
@@ -550,6 +744,16 @@ export default function PipelinePage() {
           ))}
         </select>
 
+        <button
+          onClick={() => setManagingStages(true)}
+          className="btn"
+          style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+          title="Gerir etapas"
+        >
+          <Settings size={14} />
+          <span>Gerir Etapas</span>
+        </button>
+
         <div className="ml-auto flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
           <span>Total: <strong style={{ color: 'var(--text-primary)' }}>{leads.length}</strong> leads</span>
           <span>•</span>
@@ -605,6 +809,14 @@ export default function PipelinePage() {
             setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))
           }
           onDeleted={(id) => setLeads((prev) => prev.filter((l) => l.id !== id))}
+        />
+      )}
+
+      {managingStages && activePipeline && (
+        <ManageStagesModal
+          pipeline={activePipeline}
+          onClose={() => setManagingStages(false)}
+          onChanged={reloadPipelines}
         />
       )}
     </div>
