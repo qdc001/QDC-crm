@@ -4,6 +4,9 @@ import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import { generateSecret, otpauthUrl, verifyTotp } from '../lib/totp';
+import { sendSystemEmail } from '../lib/mailer';
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -12,6 +15,7 @@ const userSelect = {
   id: true, name: true, email: true, avatar: true, phone: true,
   role: true, isActive: true, status: true, internalNotes: true,
   viewOnlyOwn: true, teamId: true,
+  twoFactorEnabled: true, language: true, emailPreferences: true,
   workspaceId: true, lastLoginAt: true,
   createdAt: true, updatedAt: true,
 };
@@ -31,9 +35,12 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 // PATCH /api/users/me - actualizar perfil pessoal
 router.patch('/me', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { name, phone, avatar, status } = req.body;
+    const { name, phone, avatar, status, language, emailPreferences } = req.body;
     if (status && !['ONLINE', 'AWAY', 'BUSY', 'DND', 'OFFLINE'].includes(status)) {
       throw new AppError('Status invalido', 400);
+    }
+    if (language && !['pt', 'en'].includes(language)) {
+      throw new AppError('Idioma invalido', 400);
     }
     const user = await prisma.user.update({
       where: { id: req.user!.id },
@@ -42,10 +49,146 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(phone !== undefined && { phone }),
         ...(avatar !== undefined && { avatar }),
         ...(status && { status }),
+        ...(language && { language }),
+        ...(emailPreferences && { emailPreferences }),
       },
       select: userSelect,
     });
     res.json(user);
+  } catch (e) { next(e); }
+});
+
+// =============== Sessions ===============
+
+// GET /api/users/me/sessions
+router.get('/me/sessions', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const currentToken = req.headers.authorization?.replace('Bearer ', '');
+    const sessions = await prisma.session.findMany({
+      where: { userId: req.user!.id, expiresAt: { gt: new Date() } },
+      orderBy: { lastUsedAt: 'desc' },
+      select: { id: true, ip: true, userAgent: true, device: true, lastUsedAt: true, createdAt: true, expiresAt: true, token: true },
+    });
+    // mascarar token mas indicar se e a sessao actual
+    const result = sessions.map((s) => ({
+      ...s,
+      isCurrent: s.token === currentToken,
+      token: undefined,
+    }));
+    res.json(result);
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/users/me/sessions/:id
+router.delete('/me/sessions/:id', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const session = await prisma.session.findUnique({ where: { id: req.params.id } });
+    if (!session || session.userId !== req.user!.id) throw new AppError('Sessao nao encontrada', 404);
+    await prisma.session.delete({ where: { id: session.id } });
+    res.json({ message: 'Sessao terminada' });
+  } catch (e) { next(e); }
+});
+
+// POST /api/users/me/sessions/revoke-others - terminar todas excepto a actual
+router.post('/me/sessions/revoke-others', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const currentToken = req.headers.authorization?.replace('Bearer ', '');
+    const result = await prisma.session.deleteMany({
+      where: { userId: req.user!.id, token: { not: currentToken } },
+    });
+    res.json({ revoked: result.count });
+  } catch (e) { next(e); }
+});
+
+// =============== 2FA TOTP ===============
+
+// POST /api/users/me/2fa/setup - gera secret e otpauth url (nao activa ainda)
+router.post('/me/2fa/setup', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const secret = generateSecret();
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    if (!user) throw new AppError('Utilizador nao encontrado', 404);
+    // Guardar secret temporario (mas nao activar ate verify)
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorSecret: secret, twoFactorEnabled: false },
+    });
+    const url = otpauthUrl(secret, user.email, 'KommoCRM');
+    res.json({ secret, otpauthUrl: url });
+  } catch (e) { next(e); }
+});
+
+// POST /api/users/me/2fa/enable - verificar codigo e activar
+router.post('/me/2fa/enable', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { code } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    if (!user || !user.twoFactorSecret) throw new AppError('Configura primeiro (setup)', 400);
+    if (!verifyTotp(user.twoFactorSecret, code)) throw new AppError('Codigo invalido', 400);
+    await prisma.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true } });
+    res.json({ message: '2FA activada' });
+  } catch (e) { next(e); }
+});
+
+// POST /api/users/me/2fa/disable - desactivar (precisa password)
+router.post('/me/2fa/disable', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { password } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    if (!user) throw new AppError('Utilizador nao encontrado', 404);
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) throw new AppError('Password incorrecta', 400);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorEnabled: false, twoFactorSecret: null },
+    });
+    res.json({ message: '2FA desactivada' });
+  } catch (e) { next(e); }
+});
+
+// =============== Convidar por email ===============
+
+// POST /api/users/invite-by-email
+router.post('/invite-by-email', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
+      throw new AppError('Apenas OWNER/ADMIN', 403);
+    }
+    const { name, email, role } = req.body;
+    if (!name || !email) throw new AppError('Nome e email obrigatorios', 400);
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) throw new AppError('Email ja registado', 409);
+
+    const tempPwd = crypto.randomBytes(16).toString('hex');
+    const hash = await bcrypt.hash(tempPwd, 12);
+    const user = await prisma.user.create({
+      data: {
+        name, email, password: hash,
+        role: role || 'AGENT',
+        isActive: false, // activa quando aceitar
+        workspaceId: req.user!.workspaceId,
+      },
+      select: userSelect,
+    });
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + 7);
+    await prisma.inviteToken.create({
+      data: { token, userId: user.id, expiresAt },
+    });
+
+    const workspace = await prisma.workspace.findUnique({ where: { id: req.user!.workspaceId } });
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const link = `${frontendUrl}/accept-invite/${token}`;
+    const result = await sendSystemEmail(req.user!.workspaceId, 'invite', email, {
+      name, link,
+      workspaceName: workspace?.name || '',
+    });
+
+    res.status(201).json({
+      user, inviteLink: link, emailSent: result.sent,
+      ...(result.sent ? {} : { emailError: result.reason || 'SMTP nao configurado - partilha o link manualmente' }),
+    });
   } catch (e) { next(e); }
 });
 

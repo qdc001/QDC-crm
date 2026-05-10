@@ -21,11 +21,13 @@ const ROLE_COLORS: Record<string, { bg: string; fg: string; icon: any }> = {
 function InviteModal({ onClose, onCreated, currentRole }: {
   onClose: () => void; onCreated: (u: User) => void; currentRole: string;
 }) {
+  const [mode, setMode] = useState<'email' | 'manual'>('email');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('AGENT');
   const [loading, setLoading] = useState(false);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const generatePwd = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -36,16 +38,53 @@ function InviteModal({ onClose, onCreated, currentRole }: {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email || !password) { toast.error('Todos os campos obrigatorios'); return; }
+    if (!name || !email || (mode === 'manual' && !password)) {
+      toast.error('Preenche os campos obrigatorios');
+      return;
+    }
     setLoading(true);
     try {
-      const { data } = await api.post('/users', { name, email, password, role });
-      toast.success('Membro convidado. Partilha as credenciais com ele.');
-      onCreated(data);
-      onClose();
+      if (mode === 'email') {
+        const { data } = await api.post('/users/invite-by-email', { name, email, role });
+        if (data.emailSent) {
+          toast.success('Convite enviado por email');
+          onCreated(data.user);
+          onClose();
+        } else {
+          // SMTP nao configurado - mostrar link
+          setInviteLink(data.inviteLink);
+          toast(data.emailError || 'SMTP nao configurado. Partilha o link manualmente.', { icon: 'ℹ️' });
+        }
+      } else {
+        const { data } = await api.post('/users', { name, email, password, role });
+        toast.success('Membro criado');
+        onCreated(data);
+        onClose();
+      }
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro'); }
     finally { setLoading(false); }
   };
+
+  if (inviteLink) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+        <div className="card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <h3 className="text-lg font-bold mb-3">Membro criado</h3>
+          <div className="p-3 rounded mb-3" style={{ background: '#FEF3C7', color: '#92400E' }}>
+            <p className="text-sm font-medium">Email nao foi enviado</p>
+            <p className="text-xs mt-1">Configura SMTP nas Integracoes ou partilha este link com o membro:</p>
+          </div>
+          <div className="p-2 rounded mb-3" style={{ background: 'var(--surface-2)' }}>
+            <code className="text-xs break-all">{inviteLink}</code>
+          </div>
+          <button onClick={() => { navigator.clipboard.writeText(inviteLink); toast.success('Copiado'); }} className="btn btn-primary w-full py-2 mb-2">
+            Copiar link
+          </button>
+          <button onClick={onClose} className="btn w-full py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
@@ -54,20 +93,34 @@ function InviteModal({ onClose, onCreated, currentRole }: {
           <h3 className="text-lg font-bold">Convidar membro</h3>
           <button onClick={onClose}><X size={20} /></button>
         </div>
+        <div className="flex gap-1 mb-3 p-1 rounded" style={{ background: 'var(--surface-2)' }}>
+          <button type="button" onClick={() => setMode('email')} className="text-xs px-3 py-1.5 rounded font-medium flex-1"
+            style={{ background: mode === 'email' ? 'var(--surface)' : 'transparent', color: 'var(--text-primary)', boxShadow: mode === 'email' ? 'var(--shadow-sm)' : 'none' }}>
+            Convidar por email
+          </button>
+          <button type="button" onClick={() => setMode('manual')} className="text-xs px-3 py-1.5 rounded font-medium flex-1"
+            style={{ background: mode === 'manual' ? 'var(--surface)' : 'transparent', color: 'var(--text-primary)', boxShadow: mode === 'manual' ? 'var(--shadow-sm)' : 'none' }}>
+            Definir password manual
+          </button>
+        </div>
         <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-          Cria a conta com password temporaria. Partilha as credenciais com o membro para ele entrar.
+          {mode === 'email'
+            ? 'O membro recebe um email com link para definir a sua propria password (requer SMTP configurado).'
+            : 'Cria a conta com password temporaria. Partilha as credenciais com o membro.'}
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome completo" className="input-base" required />
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@exemplo.com" className="input-base" required />
-          <div>
-            <div className="flex gap-2">
-              <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (min. 6)" className="input-base" required />
-              <button type="button" onClick={generatePwd} className="btn py-2 px-3" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }} title="Gerar password aleatoria">
-                <KeyRound size={14} />
-              </button>
+          {mode === 'manual' && (
+            <div>
+              <div className="flex gap-2">
+                <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (min. 6)" className="input-base" required />
+                <button type="button" onClick={generatePwd} className="btn py-2 px-3" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }} title="Gerar password aleatoria">
+                  <KeyRound size={14} />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
           <select value={role} onChange={(e) => setRole(e.target.value)} className="input-base">
             <option value="AGENT">Agente — acesso basico</option>
             <option value="MANAGER">Manager — gere leads e equipa</option>

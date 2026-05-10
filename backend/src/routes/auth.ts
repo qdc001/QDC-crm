@@ -1,12 +1,48 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { AppError } from '../middleware/errorHandler';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { verifyTotp } from '../lib/totp';
+import { sendSystemEmail } from '../lib/mailer';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+function parseDeviceInfo(ua?: string): string {
+  if (!ua) return 'Desconhecido';
+  let device = '';
+  if (/Chrome/i.test(ua)) device = 'Chrome';
+  else if (/Firefox/i.test(ua)) device = 'Firefox';
+  else if (/Safari/i.test(ua)) device = 'Safari';
+  else if (/Edg/i.test(ua)) device = 'Edge';
+  else device = 'Browser';
+  if (/Windows/i.test(ua)) device += ' (Windows)';
+  else if (/Mac OS/i.test(ua)) device += ' (macOS)';
+  else if (/Linux/i.test(ua)) device += ' (Linux)';
+  else if (/Android/i.test(ua)) device += ' (Android)';
+  else if (/iPhone|iPad/i.test(ua)) device += ' (iOS)';
+  return device;
+}
+
+async function createSession(userId: string, token: string, req: Request) {
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || '';
+  const ua = req.headers['user-agent'] || '';
+  await prisma.session.create({
+    data: {
+      token,
+      userId,
+      ip: ip.slice(0, 64),
+      userAgent: ua.slice(0, 255),
+      device: parseDeviceInfo(ua),
+      expiresAt,
+    },
+  });
+}
 
 // POST /api/auth/register
 router.post('/register', async (req: Request, res: Response, next) => {
@@ -83,7 +119,7 @@ router.post('/register', async (req: Request, res: Response, next) => {
 // POST /api/auth/login
 router.post('/login', async (req: Request, res: Response, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, code } = req.body;
 
     if (!email || !password) {
       throw new AppError('Email e palavra-passe são obrigatórios', 400);
@@ -102,6 +138,16 @@ router.post('/login', async (req: Request, res: Response, next) => {
       throw new AppError('Conta desactivada', 403);
     }
 
+    // 2FA
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
+      if (!code) {
+        return res.status(206).json({ needs2FA: true, email });
+      }
+      if (!verifyTotp(user.twoFactorSecret, code)) {
+        throw new AppError('Codigo 2FA invalido', 401);
+      }
+    }
+
     await prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -113,6 +159,8 @@ router.post('/login', async (req: Request, res: Response, next) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' } as any
     );
 
+    await createSession(user.id, token, req);
+
     res.json({
       token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar },
@@ -121,6 +169,80 @@ router.post('/login', async (req: Request, res: Response, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// POST /api/auth/forgot-password (publico)
+router.post('/forgot-password', async (req: Request, res: Response, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) throw new AppError('Email obrigatorio', 400);
+    const user = await prisma.user.findUnique({ where: { email } });
+    // Resposta sempre 200 para nao revelar se email existe
+    if (!user) return res.json({ message: 'Se o email existir, sera enviado um link.' });
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(); expiresAt.setHours(expiresAt.getHours() + 1);
+    await prisma.passwordResetToken.create({
+      data: { token, userId: user.id, expiresAt },
+    });
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const link = `${frontendUrl}/reset-password/${token}`;
+    const result = await sendSystemEmail(user.workspaceId, 'password_reset', user.email, {
+      name: user.name, link,
+    });
+
+    res.json({
+      message: 'Se o email existir, sera enviado um link.',
+      _debug: result.sent ? undefined : { reason: result.reason, link },
+    });
+  } catch (e) { next(e); }
+});
+
+// POST /api/auth/reset-password (publico)
+router.post('/reset-password', async (req: Request, res: Response, next) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) throw new AppError('Token e password obrigatorios', 400);
+    if (newPassword.length < 6) throw new AppError('Password tem de ter pelo menos 6 caracteres', 400);
+
+    const reset = await prisma.passwordResetToken.findUnique({ where: { token } });
+    if (!reset || reset.usedAt || reset.expiresAt < new Date()) {
+      throw new AppError('Token invalido ou expirado', 400);
+    }
+    const hash = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({ where: { id: reset.userId }, data: { password: hash } });
+    await prisma.passwordResetToken.update({ where: { id: reset.id }, data: { usedAt: new Date() } });
+    res.json({ message: 'Password redefinida' });
+  } catch (e) { next(e); }
+});
+
+// GET /api/auth/invite/:token (publico) - info do convite
+router.get('/invite/:token', async (req: Request, res: Response, next) => {
+  try {
+    const invite = await prisma.inviteToken.findUnique({
+      where: { token: req.params.token },
+      include: { user: { select: { name: true, email: true } } },
+    });
+    if (!invite || invite.usedAt) return res.status(404).json({ message: 'Convite invalido' });
+    if (invite.expiresAt < new Date()) return res.status(400).json({ message: 'Convite expirado' });
+    res.json({ name: invite.user.name, email: invite.user.email });
+  } catch (e) { next(e); }
+});
+
+// POST /api/auth/invite/:token/accept (publico) - definir password
+router.post('/invite/:token/accept', async (req: Request, res: Response, next) => {
+  try {
+    const { password } = req.body;
+    if (!password || password.length < 6) throw new AppError('Password com pelo menos 6 caracteres', 400);
+    const invite = await prisma.inviteToken.findUnique({ where: { token: req.params.token } });
+    if (!invite || invite.usedAt) return res.status(404).json({ message: 'Convite invalido' });
+    if (invite.expiresAt < new Date()) return res.status(400).json({ message: 'Convite expirado' });
+    const hash = await bcrypt.hash(password, 12);
+    await prisma.user.update({ where: { id: invite.userId }, data: { password: hash, isActive: true } });
+    await prisma.inviteToken.update({ where: { id: invite.id }, data: { usedAt: new Date() } });
+    res.json({ message: 'Conta activada. Pode fazer login.' });
+  } catch (e) { next(e); }
 });
 
 // GET /api/auth/me

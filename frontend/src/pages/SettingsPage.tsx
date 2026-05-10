@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import {
   User as UserIcon, Lock, Building2, Save, Loader2, Eye, EyeOff,
   Sun, Moon, Upload, Palette, FileDown, History, Download, Activity,
+  Shield, Bell, Globe, Mail, Smartphone, KeyRound, Trash2, X, Check,
+  FileText as FileTextIcon,
 } from 'lucide-react';
 import api, { WorkspaceFull, AuditLog } from '../lib/api';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
 import { useTheme, applyPrimaryColor, setDateFormatPref, getDateFormatPref } from '../lib/theme';
+import { useT, setLang } from '../lib/i18n';
 
 const TIMEZONES = [
   'Africa/Maputo', 'Europe/Lisbon', 'Africa/Johannesburg', 'Africa/Nairobi',
@@ -26,8 +29,10 @@ const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', '
 
 export default function SettingsPage() {
   const { user, updateUser, updateWorkspace } = useAuthStore();
-  const [tab, setTab] = useState<'profile' | 'preferences' | 'password' | 'workspace' | 'audit'>('profile');
+  const [tab, setTab] = useState<'profile' | 'preferences' | 'security' | 'notifications' | 'workspace' | 'emailTemplates' | 'audit'>('profile');
   const [theme, setTheme] = useTheme();
+  const useTResult = useT();
+  const currentLang = useTResult[1];
 
   // Perfil
   const [name, setName] = useState(user?.name || '');
@@ -65,6 +70,30 @@ export default function SettingsPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
 
+  // Sessions
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+
+  // 2FA
+  const [twoFAEnabled, setTwoFAEnabled] = useState((user as any)?.twoFactorEnabled || false);
+  const [setupSecret, setSetupSecret] = useState('');
+  const [setupOtpUrl, setSetupOtpUrl] = useState('');
+  const [verifyCode, setVerifyCode] = useState('');
+  const [disablePwd, setDisablePwd] = useState('');
+
+  // Notificacoes email
+  const [emailPrefs, setEmailPrefs] = useState<Record<string, boolean>>(
+    ((user as any)?.emailPreferences as Record<string, boolean>) || {
+      newLead: true, taskOverdue: true, newMessage: false, mention: true,
+    }
+  );
+
+  // Templates email
+  const [systemTemplates, setSystemTemplates] = useState<any[]>([]);
+
+  // Idioma
+  const [lang, setLangState] = useState<'pt' | 'en'>(currentLang);
+
   // Estado actual do utilizador
   const isAdminOrOwner = user?.role === 'OWNER' || user?.role === 'ADMIN';
 
@@ -91,7 +120,101 @@ export default function SettingsPage() {
         .catch(() => {})
         .finally(() => setLoadingLogs(false));
     }
+    if (tab === 'security') {
+      setLoadingSessions(true);
+      api.get('/users/me/sessions')
+        .then(({ data }) => setSessions(Array.isArray(data) ? data : []))
+        .catch(() => {})
+        .finally(() => setLoadingSessions(false));
+    }
+    if (tab === 'emailTemplates' && isAdminOrOwner) {
+      api.get('/system-email-templates')
+        .then(({ data }) => setSystemTemplates(Array.isArray(data) ? data : []))
+        .catch(() => {});
+    }
   }, [tab, isAdminOrOwner]);
+
+  // 2FA handlers
+  const startSetup = async () => {
+    try {
+      const { data } = await api.post('/users/me/2fa/setup');
+      setSetupSecret(data.secret);
+      setSetupOtpUrl(data.otpauthUrl);
+    } catch { toast.error('Erro'); }
+  };
+  const enable2FA = async () => {
+    try {
+      await api.post('/users/me/2fa/enable', { code: verifyCode });
+      setTwoFAEnabled(true);
+      setSetupSecret(''); setSetupOtpUrl(''); setVerifyCode('');
+      toast.success('2FA activada');
+    } catch (err: any) { toast.error(err.response?.data?.message || 'Erro'); }
+  };
+  const disable2FA = async () => {
+    try {
+      await api.post('/users/me/2fa/disable', { password: disablePwd });
+      setTwoFAEnabled(false); setDisablePwd('');
+      toast.success('2FA desactivada');
+    } catch (err: any) { toast.error(err.response?.data?.message || 'Erro'); }
+  };
+
+  const reloadSessions = () => {
+    api.get('/users/me/sessions').then(({ data }) => setSessions(Array.isArray(data) ? data : [])).catch(() => {});
+  };
+
+  const revokeSession = async (id: string) => {
+    if (!confirm('Terminar esta sessao?')) return;
+    try {
+      await api.delete(`/users/me/sessions/${id}`);
+      reloadSessions();
+      toast.success('Sessao terminada');
+    } catch { toast.error('Erro'); }
+  };
+
+  const revokeOthers = async () => {
+    if (!confirm('Terminar todas as outras sessoes?')) return;
+    try {
+      await api.post('/users/me/sessions/revoke-others');
+      reloadSessions();
+      toast.success('Outras sessoes terminadas');
+    } catch { toast.error('Erro'); }
+  };
+
+  const saveEmailPrefs = async () => {
+    try {
+      const { data } = await api.patch('/users/me', { emailPreferences: emailPrefs });
+      setEmailPrefs(data.emailPreferences as any);
+      toast.success('Preferencias guardadas');
+    } catch { toast.error('Erro'); }
+  };
+
+  const changeLang = async (l: 'pt' | 'en') => {
+    setLangState(l);
+    setLang(l);
+    try {
+      await api.patch('/users/me', { language: l });
+      toast.success('Idioma actualizado');
+    } catch {}
+  };
+
+  const saveTemplate = async (type: string, subject: string, body: string, enabled: boolean) => {
+    try {
+      await api.put(`/system-email-templates/${type}`, { subject, body, enabled });
+      toast.success('Template guardado');
+      const { data } = await api.get('/system-email-templates');
+      setSystemTemplates(Array.isArray(data) ? data : []);
+    } catch { toast.error('Erro'); }
+  };
+
+  const resetTemplate = async (type: string) => {
+    if (!confirm('Repor template ao padrao?')) return;
+    try {
+      await api.delete(`/system-email-templates/${type}`);
+      const { data } = await api.get('/system-email-templates');
+      setSystemTemplates(Array.isArray(data) ? data : []);
+      toast.success('Reposto');
+    } catch { toast.error('Erro'); }
+  };
 
   const uploadAvatar = async (file: File) => {
     if (file.size > 5 * 1024 * 1024) { toast.error('Avatar maior que 5 MB'); return; }
@@ -175,8 +298,10 @@ export default function SettingsPage() {
   const tabs = [
     { v: 'profile' as const, label: 'Perfil', icon: UserIcon },
     { v: 'preferences' as const, label: 'Preferencias', icon: Palette },
-    { v: 'password' as const, label: 'Password', icon: Lock },
+    { v: 'security' as const, label: 'Seguranca', icon: Shield },
+    { v: 'notifications' as const, label: 'Notificacoes', icon: Bell },
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: 'Workspace', icon: Building2 }] : []),
+    ...(isAdminOrOwner ? [{ v: 'emailTemplates' as const, label: 'Templates email', icon: FileTextIcon }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: 'Auditoria', icon: History }] : []),
   ];
 
@@ -278,37 +403,206 @@ export default function SettingsPage() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Formato de data preferido</label>
-            <select value={datePref} onChange={(e) => { setDatePref(e.target.value); setDateFormatPref(e.target.value); toast.success('Guardado'); }} className="input-base">
-              {DATE_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
-            </select>
-            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Esta preferencia e local. Para mudar para todos os utilizadores, edita na Workspace.</p>
-          </div>
-        </div>
-      )}
-
-      {tab === 'password' && (
-        <div className="card p-6 space-y-4 max-w-md">
-          <div>
-            <label className="block text-sm font-medium mb-1">Password actual</label>
-            <div className="relative">
-              <input type={showPwd ? 'text' : 'password'} value={curPwd} onChange={(e) => setCurPwd(e.target.value)} className="input-base" />
-              <button onClick={() => setShowPwd(!showPwd)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1">
-                {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
+            <label className="block text-sm font-medium mb-2 flex items-center gap-1"><Globe size={14} /> Idioma</label>
+            <div className="flex gap-2">
+              <button onClick={() => changeLang('pt')} className="btn py-2 px-3"
+                style={{ background: lang === 'pt' ? 'var(--primary)' : 'var(--surface-3)', color: lang === 'pt' ? '#fff' : 'var(--text-primary)' }}>
+                Portugues (MZ)
+              </button>
+              <button onClick={() => changeLang('en')} className="btn py-2 px-3"
+                style={{ background: lang === 'en' ? 'var(--primary)' : 'var(--surface-3)', color: lang === 'en' ? '#fff' : 'var(--text-primary)' }}>
+                English
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Nova password</label>
-            <input type={showPwd ? 'text' : 'password'} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="input-base" />
+            <label className="block text-sm font-medium mb-1">Formato de data preferido</label>
+            <select value={datePref} onChange={(e) => { setDatePref(e.target.value); setDateFormatPref(e.target.value); toast.success('Guardado'); }} className="input-base">
+              {DATE_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Confirmar nova password</label>
-            <input type={showPwd ? 'text' : 'password'} value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} className="input-base" />
+        </div>
+      )}
+
+      {tab === 'security' && (
+        <div className="space-y-4">
+          {/* Mudar password */}
+          <div className="card p-6">
+            <h3 className="font-semibold mb-3 flex items-center gap-2"><Lock size={16} /> Mudar password</h3>
+            <div className="space-y-3 max-w-md">
+              <div>
+                <label className="block text-sm font-medium mb-1">Password actual</label>
+                <div className="relative">
+                  <input type={showPwd ? 'text' : 'password'} value={curPwd} onChange={(e) => setCurPwd(e.target.value)} className="input-base" />
+                  <button onClick={() => setShowPwd(!showPwd)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1">
+                    {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Nova password</label>
+                <input type={showPwd ? 'text' : 'password'} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="input-base" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Confirmar</label>
+                <input type={showPwd ? 'text' : 'password'} value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} className="input-base" />
+              </div>
+              <button onClick={savePassword} disabled={savingPwd || !curPwd || !newPwd} className="btn btn-primary py-2 px-4">
+                {savingPwd ? <Loader2 size={16} className="animate-spin" /> : <Lock size={14} />} Alterar password
+              </button>
+            </div>
           </div>
-          <button onClick={savePassword} disabled={savingPwd || !curPwd || !newPwd} className="btn btn-primary py-2 px-4">
-            {savingPwd ? <Loader2 size={16} className="animate-spin" /> : <Lock size={14} />} Alterar password
+
+          {/* 2FA */}
+          <div className="card p-6">
+            <h3 className="font-semibold mb-3 flex items-center gap-2"><Shield size={16} /> Autenticacao de 2 factores (2FA)</h3>
+            {twoFAEnabled ? (
+              <div className="space-y-3">
+                <div className="p-3 rounded flex items-center gap-2" style={{ background: '#D1FAE5', color: '#065F46' }}>
+                  <Check size={14} />
+                  <span className="text-sm font-medium">2FA activa</span>
+                </div>
+                <div className="space-y-2 max-w-md">
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Para desactivar, indica a tua password.</p>
+                  <input type="password" value={disablePwd} onChange={(e) => setDisablePwd(e.target.value)} placeholder="Password actual" className="input-base" />
+                  <button onClick={disable2FA} disabled={!disablePwd} className="btn py-2 px-3" style={{ background: '#FEF2F2', color: '#EF4444' }}>
+                    Desactivar 2FA
+                  </button>
+                </div>
+              </div>
+            ) : !setupSecret ? (
+              <div>
+                <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+                  Adiciona uma camada extra de seguranca. Vais precisar de uma app autenticadora (Google Authenticator, Authy, 1Password, etc.).
+                </p>
+                <button onClick={startSetup} className="btn btn-primary py-2 px-3">
+                  <Smartphone size={14} /> Activar 2FA
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3 max-w-md">
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Abre a tua app autenticadora e adiciona esta conta. Podes escanear o QR code ou inserir o codigo manualmente.
+                </p>
+                <div className="flex justify-center p-4 rounded" style={{ background: '#fff' }}>
+                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(setupOtpUrl)}`} alt="QR" />
+                </div>
+                <div>
+                  <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Codigo manual (caso nao consigas usar QR):</p>
+                  <code className="text-xs p-2 rounded block break-all" style={{ background: 'var(--surface-3)' }}>{setupSecret}</code>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Insere o codigo de 6 digitos da app</label>
+                  <input value={verifyCode} onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="input-base text-center" style={{ letterSpacing: 4, fontSize: 18 }} placeholder="123456" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { setSetupSecret(''); setSetupOtpUrl(''); }} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
+                  <button onClick={enable2FA} disabled={verifyCode.length !== 6} className="btn btn-primary flex-1 py-2">Confirmar</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Sessoes */}
+          <div className="card p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold flex items-center gap-2"><Smartphone size={16} /> Sessoes activas</h3>
+              <button onClick={revokeOthers} className="text-xs px-2 py-1 rounded font-medium" style={{ background: '#FEF2F2', color: '#EF4444' }}>
+                Terminar todas as outras
+              </button>
+            </div>
+            {loadingSessions ? (
+              <div className="flex justify-center py-4"><Loader2 className="animate-spin" /></div>
+            ) : sessions.length === 0 ? (
+              <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>Sem sessoes activas</p>
+            ) : (
+              <div className="space-y-2">
+                {sessions.map((s) => (
+                  <div key={s.id} className="flex items-center gap-3 p-3 rounded" style={{ background: 'var(--surface-2)' }}>
+                    <Smartphone size={16} style={{ color: 'var(--text-muted)' }} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                        {s.device || 'Dispositivo desconhecido'}
+                        {s.isCurrent && <span className="ml-2 text-xs px-2 py-0.5 rounded" style={{ background: '#D1FAE5', color: '#065F46' }}>Esta sessao</span>}
+                      </p>
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {s.ip} · Ultimo uso {new Date(s.lastUsedAt).toLocaleString('pt-PT')}
+                      </p>
+                    </div>
+                    {!s.isCurrent && (
+                      <button onClick={() => revokeSession(s.id)} className="p-1.5 rounded hover:bg-red-50">
+                        <Trash2 size={14} style={{ color: '#EF4444' }} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'notifications' && (
+        <div className="card p-6 space-y-4">
+          <h3 className="font-semibold flex items-center gap-2"><Mail size={16} /> Notificacoes por email</h3>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Escolhe quando receber emails. Requer integracao SMTP configurada nas Integracoes para os emails serem enviados.
+          </p>
+          {[
+            { k: 'newLead', label: 'Novo lead atribuido a mim' },
+            { k: 'taskOverdue', label: 'Tarefa minha em atraso' },
+            { k: 'newMessage', label: 'Nova mensagem em conversa minha' },
+            { k: 'mention', label: 'Mencao em nota interna' },
+          ].map((n) => (
+            <label key={n.k} className="flex items-center gap-3 p-3 rounded cursor-pointer" style={{ background: 'var(--surface-2)' }}>
+              <input type="checkbox" checked={!!emailPrefs[n.k]} onChange={(e) => setEmailPrefs({ ...emailPrefs, [n.k]: e.target.checked })} />
+              <span className="text-sm" style={{ color: 'var(--text-primary)' }}>{n.label}</span>
+            </label>
+          ))}
+          <button onClick={saveEmailPrefs} className="btn btn-primary py-2 px-4">
+            <Save size={14} /> Guardar preferencias
           </button>
+        </div>
+      )}
+
+      {tab === 'emailTemplates' && isAdminOrOwner && (
+        <div className="space-y-3">
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Personaliza os emails enviados pelo sistema. Variaveis suportadas: {'{{name}}, {{email}}, {{link}}, {{workspaceName}}, {{leadTitle}}, {{taskTitle}}'}
+          </p>
+          {systemTemplates.map((t) => (
+            <details key={t.type} className="card p-4">
+              <summary className="cursor-pointer flex items-center gap-2 font-medium">
+                <FileTextIcon size={14} />
+                <span>{
+                  t.type === 'welcome' ? 'Boas-vindas' :
+                  t.type === 'password_reset' ? 'Reposicao de password' :
+                  t.type === 'invite' ? 'Convite de membro' :
+                  t.type === 'csat' ? 'Pedido de avaliacao (CSAT)' :
+                  t.type === 'lead_assigned' ? 'Lead atribuido' :
+                  t.type === 'task_overdue' ? 'Tarefa em atraso' : t.type
+                }</span>
+                {t.isDefault && <span className="text-xs px-2 py-0.5 rounded ml-auto" style={{ background: 'var(--surface-3)', color: 'var(--text-muted)' }}>Padrao</span>}
+              </summary>
+              <div className="mt-3 space-y-2">
+                <input
+                  defaultValue={t.subject}
+                  onBlur={(e) => e.target.value !== t.subject && saveTemplate(t.type, e.target.value, t.body, t.enabled)}
+                  className="input-base" placeholder="Assunto"
+                />
+                <textarea
+                  defaultValue={t.body}
+                  onBlur={(e) => e.target.value !== t.body && saveTemplate(t.type, t.subject, e.target.value, t.enabled)}
+                  className="input-base" rows={6} placeholder="Corpo HTML"
+                />
+                {!t.isDefault && (
+                  <button onClick={() => resetTemplate(t.type)} className="text-xs hover:underline" style={{ color: 'var(--primary)' }}>
+                    Repor ao padrao
+                  </button>
+                )}
+              </div>
+            </details>
+          ))}
         </div>
       )}
 

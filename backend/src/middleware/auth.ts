@@ -40,6 +40,13 @@ export const authMiddleware = async (
     }
 
     req.user = { id: user.id, workspaceId: user.workspaceId, role: user.role, email: user.email };
+
+    // Actualizar session.lastUsedAt em background (sem bloquear)
+    prisma.session.updateMany({
+      where: { userId: user.id, token, expiresAt: { gt: new Date() } },
+      data: { lastUsedAt: new Date() },
+    }).catch(() => {});
+
     next();
   } catch (error) {
     return res.status(401).json({ message: 'Token inválido' });

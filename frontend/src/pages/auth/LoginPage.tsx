@@ -10,6 +10,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [code, setCode] = useState('');
   const { login } = useAuthStore();
   const navigate = useNavigate();
 
@@ -17,7 +19,14 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/login', { email, password });
+      const res = await api.post('/auth/login', { email, password, code: needs2FA ? code : undefined });
+      const data = res.data;
+      // Resposta 206 indica que 2FA e necessario
+      if (res.status === 206 || data.needs2FA) {
+        setNeeds2FA(true);
+        toast('Insere o codigo do teu autenticador', { icon: '🔐' });
+        return;
+      }
       login(data.token, data.user, data.workspace);
       toast.success(`Bem-vindo, ${data.user.name}!`);
       navigate('/');
@@ -92,7 +101,7 @@ export default function LoginPage() {
             <div>
               <div className="flex justify-between mb-1.5">
                 <label className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Palavra-passe</label>
-                <a href="#" className="text-sm" style={{ color: 'var(--primary)' }}>Esqueceu?</a>
+                <Link to="/forgot-password" className="text-sm" style={{ color: 'var(--primary)' }}>Esqueceu?</Link>
               </div>
               <div className="relative">
                 <input
@@ -108,6 +117,23 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            {needs2FA && (
+              <div>
+                <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-primary)' }}>Codigo 2FA (6 digitos)</label>
+                <input
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  required
+                  autoFocus
+                  className="input-base text-center"
+                  style={{ letterSpacing: 4, fontSize: 18 }}
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Abre a tua app autenticadora e copia o codigo.</p>
+              </div>
+            )}
 
             <button type="submit" disabled={loading} className="btn btn-primary w-full py-2.5" style={{ marginTop: 8 }}>
               {loading ? <Loader2 size={16} className="animate-spin" /> : null}

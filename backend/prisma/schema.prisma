@@ -19,9 +19,16 @@ model User {
   role         UserRole @default(AGENT)
   isActive     Boolean  @default(true)
   status       String   @default("OFFLINE") // ONLINE | AWAY | BUSY | DND | OFFLINE
-  internalNotes String?  // notas HR sobre o membro
-  viewOnlyOwn  Boolean  @default(false) // restricao de visibilidade
+  internalNotes String?
+  viewOnlyOwn  Boolean  @default(false)
   lastLoginAt  DateTime?
+  // 2FA
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecret  String?
+  // Preferencias notificacoes (JSON: { newLead, taskOverdue, newMessage, mention } )
+  emailPreferences Json    @default("{\"newLead\":true,\"taskOverdue\":true,\"newMessage\":false,\"mention\":true}")
+  // i18n
+  language     String   @default("pt")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -29,6 +36,9 @@ model User {
   workspaceId  String
   team         Team?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
   teamId       String?
+  sessions     Session[]
+  passwordResetTokens PasswordResetToken[]
+  inviteToken  InviteToken?
 
   assignedLeads    Lead[]       @relation("AssignedLeads")
   createdLeads     Lead[]       @relation("CreatedLeads")
@@ -84,6 +94,7 @@ model Workspace {
   conversationMetas ConversationMeta[]
   teams        Team[]
   auditLogs    AuditLog[]
+  systemEmailTemplates SystemEmailTemplate[]
 
   @@map("workspaces")
 }
@@ -730,6 +741,69 @@ model TagOnConversation {
 
   @@id([conversationId, tagId])
   @@map("tags_on_conversations")
+}
+
+// ==================== SESSIONS (multi-device) ====================
+
+model Session {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  ip          String?
+  userAgent   String?
+  device      String?  // "Chrome no Windows", etc.
+  lastUsedAt  DateTime @default(now())
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ==================== PASSWORD RESET ====================
+
+model PasswordResetToken {
+  id         String   @id @default(cuid())
+  token      String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+// ==================== INVITE BY EMAIL ====================
+
+model InviteToken {
+  id         String   @id @default(cuid())
+  token      String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String   @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@map("invite_tokens")
+}
+
+// ==================== SYSTEM EMAIL TEMPLATES ====================
+
+model SystemEmailTemplate {
+  id          String   @id @default(cuid())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  type        String   // "welcome" | "password_reset" | "invite" | "csat" | "lead_assigned" | "task_overdue"
+  subject     String
+  body        String   // HTML/plain text com variaveis {{nome}}, {{link}}, etc.
+  enabled     Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, type])
+  @@map("system_email_templates")
 }
 
 // ==================== TEAM / DEPARTAMENTOS ====================
