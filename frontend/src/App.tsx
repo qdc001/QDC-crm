@@ -18,6 +18,7 @@ import IntegrationsPage from './pages/IntegrationsPage';
 import SettingsPage from './pages/SettingsPage';
 import TeamPage from './pages/TeamPage';
 import BroadcastsPage from './pages/BroadcastsPage';
+import CsatPublicPage from './pages/CsatPublicPage';
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -35,6 +36,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Public><LoginPage /></Public>} />
         <Route path="/register" element={<Public><RegisterPage /></Public>} />
+        <Route path="/csat/:token" element={<CsatPublicPage />} />
         <Route path="/" element={<Protected><AppLayout /></Protected>}>
           <Route index element={<DashboardPage />} />
           <Route path="pipeline" element={<PipelinePage />} />

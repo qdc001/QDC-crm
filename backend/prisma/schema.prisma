@@ -38,6 +38,7 @@ model User {
   broadcasts       Broadcast[]
   goals            Goal[]
   assignedConversations ConversationMeta[]
+  csatRequests     CsatRequest[]
 
   @@map("users")
 }
@@ -157,6 +158,7 @@ model Lead {
   tags         TagOnLead[]
   customValues CustomFieldValue[]
   files        File[]
+  csatRequests CsatRequest[]
 
   @@map("leads")
 }
@@ -204,6 +206,7 @@ model Contact {
   tags         TagOnContact[]
   customValues CustomFieldValue[]
   conversationMetas ConversationMeta[]
+  csatRequests CsatRequest[]
 
   @@map("contacts")
 }
@@ -717,6 +720,27 @@ model TagOnConversation {
 
   @@id([conversationId, tagId])
   @@map("tags_on_conversations")
+}
+
+// ==================== CSAT ====================
+
+model CsatRequest {
+  id           String    @id @default(cuid())
+  token        String    @unique @default(cuid())
+  workspaceId  String
+  contactId    String?
+  contact      Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  leadId       String?
+  lead         Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  question     String    @default("Como classificas o nosso atendimento?")
+  score        Int?      // 1-5
+  comment      String?
+  sentAt       DateTime  @default(now())
+  respondedAt  DateTime?
+  createdById  String
+  createdBy    User      @relation(fields: [createdById], references: [id])
+
+  @@map("csat_requests")
 }
 
 // ==================== GOALS / METAS ====================

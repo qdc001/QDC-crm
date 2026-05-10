@@ -33,6 +33,7 @@ import whatsappRoutes from './routes/whatsapp';
 import broadcastRoutes from './routes/broadcasts';
 import aiRoutes from './routes/ai';
 import goalsRoutes from './routes/goals';
+import csatRoutes, { publicRouter as csatPublicRoutes } from './routes/csat';
 
 
 // Middleware
@@ -88,6 +89,7 @@ app.get('/health', (req, res) => {
 // Public routes
 app.use('/api/auth', authRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/csat-public', csatPublicRoutes);
 
 // Protected routes
 app.use('/api/users', authMiddleware, userRoutes);
@@ -112,6 +114,7 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/broadcasts', authMiddleware, broadcastRoutes);
 app.use('/api/ai', authMiddleware, aiRoutes);
 app.use('/api/goals', authMiddleware, goalsRoutes);
+app.use('/api/csat', authMiddleware, csatRoutes);
 
 
 // Error handler (must be last)

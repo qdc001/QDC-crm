@@ -4,7 +4,7 @@ import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
   Inbox, Building2, User as UserIcon, Star, Archive, Edit3, Trash2,
-  Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2,
+  Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -617,6 +617,25 @@ export default function InboxPage() {
     setCreatingLead(true);
   };
 
+  const handleCsatRequest = async () => {
+    if (!selected?.contact?.id) { toast.error('Conversa sem contacto associado'); return; }
+    try {
+      const { data } = await api.post('/csat', {
+        contactId: selected.contact.id,
+        leadId: selected.leadId,
+      });
+      const link = `${window.location.origin}/csat/${data.token}`;
+      try {
+        await navigator.clipboard.writeText(link);
+        toast.success('Link copiado para a clipboard! Envia ao cliente.');
+      } catch {
+        toast.success(`Link: ${link}`);
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro');
+    }
+  };
+
   const cleanPhone = (p?: string | null) => (p || '').replace(/[^0-9+]/g, '');
 
   const totalUnread = conversations.reduce((a, b) => a + b.unread, 0);
@@ -842,6 +861,9 @@ export default function InboxPage() {
                     <Phone size={16} style={{ color: 'var(--text-secondary)' }} />
                   </a>
                 )}
+                <button onClick={handleCsatRequest} className="p-2 rounded-lg hover:bg-slate-100" title="Pedir avaliacao (CSAT)">
+                  <ThumbsUp size={16} style={{ color: '#F59E0B' }} />
+                </button>
                 <button onClick={handleCreateLeadFromConv} className="btn btn-primary text-xs py-1.5 px-3" disabled={!defaultStage}>
                   <GitBranch size={12} /> Criar Lead
                 </button>

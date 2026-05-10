@@ -156,6 +156,28 @@ export interface ConversationMeta {
   tags?: { tag: Tag }[];
 }
 
+export interface CsatRequest {
+  id: string;
+  token: string;
+  question: string;
+  score: number | null;
+  comment: string | null;
+  sentAt: string;
+  respondedAt: string | null;
+  contact?: { id: string; firstName: string; lastName?: string };
+  lead?: { id: string; title: string };
+  createdBy?: { id: string; name: string };
+}
+
+export interface IntegrationItem {
+  id: string;
+  type: string;
+  name: string;
+  isActive: boolean;
+  credentials: any;
+  settings: any;
+}
+
 export interface Conversation {
   key: string;
   contact: {
