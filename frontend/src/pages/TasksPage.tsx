@@ -12,7 +12,7 @@ import {
   Tags as TagsIcon, Layout, Flag, Clock, User as UserIcon, MessageSquare,
 } from 'lucide-react';
 import api, {
-  Task, User, Lead, Tag as TagType, Pipeline, Stage,
+  Task, User, Lead, Tag as TagType, Pipeline, Stage, TaskOption,
   DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES,
 } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -295,13 +295,13 @@ function TaskFormModal({
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Tipo</label>
               <select value={type} onChange={(e) => setType(e.target.value as any)} className="input-base">
-                {wsTaskTypes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {wsTaskTypes.map((o: TaskOption) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Prioridade</label>
               <select value={priority} onChange={(e) => setPriority(e.target.value as any)} className="input-base">
-                {wsTaskPriorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {wsTaskPriorities.map((o: TaskOption) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           </div>
@@ -309,13 +309,13 @@ function TaskFormModal({
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Estado</label>
               <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="input-base">
-                {wsTaskStatuses.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {wsTaskStatuses.map((o: TaskOption) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Recorrencia</label>
               <select value={recurrence || ''} onChange={(e) => setRecurrence(e.target.value as any)} className="input-base">
-                {wsTaskRecurrences.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {wsTaskRecurrences.map((o: TaskOption) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           </div>
