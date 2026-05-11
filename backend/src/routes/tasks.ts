@@ -43,7 +43,27 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { title, description, type, status, priority, dueAt, leadId, assignedToId, recurrence, parentTaskId, tags } = req.body;
+    const { title, description, type, status, priority, dueAt, leadId, assignedToId, recurrence, parentTaskId, tags, force } = req.body;
+
+    // Verificar se já existe tarefa pendente para este lead (excepto subtarefas)
+    if (leadId && !parentTaskId && !force) {
+      const existing = await prisma.task.findFirst({
+        where: {
+          leadId,
+          parentTaskId: null,
+          status: { in: ['PENDING', 'IN_PROGRESS'] },
+        },
+        include: taskInclude,
+      });
+      if (existing) {
+        return res.status(409).json({
+          message: 'Já existe uma tarefa pendente para este lead.',
+          existingTask: existing,
+          hint: 'Conclui ou cancela a tarefa existente, ou envia force:true para criar mesmo assim.',
+        });
+      }
+    }
+
     const task = await prisma.task.create({
       data: {
         title,

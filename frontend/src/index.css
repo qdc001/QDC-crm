@@ -39,6 +39,27 @@ html.dark {
 }
 html.dark body { background: var(--surface-2); color: var(--text-primary); }
 html.dark .card { border-color: var(--border) !important; }
+
+/* Inputs date/time legíveis no dark mode (ícone calendário branco) */
+html.dark input[type="date"],
+html.dark input[type="time"],
+html.dark input[type="datetime-local"],
+html.dark input[type="month"],
+html.dark input[type="week"] { color-scheme: dark; }
+html.dark input[type="date"]::-webkit-calendar-picker-indicator,
+html.dark input[type="time"]::-webkit-calendar-picker-indicator,
+html.dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.5);
+  cursor: pointer;
+}
+
+/* Hover de linhas de tabela no dark mode (não branco puro) */
+html.dark tr:hover,
+html.dark .row-hover:hover { background: rgba(255, 255, 255, 0.04) !important; color: var(--text-primary) !important; }
+html.dark .hover\\:bg-slate-50:hover,
+html.dark .hover\\:bg-slate-100:hover { background: rgba(255, 255, 255, 0.06) !important; color: var(--text-primary) !important; }
+html.dark .hover\\:bg-gray-50:hover,
+html.dark .hover\\:bg-gray-100:hover { background: rgba(255, 255, 255, 0.06) !important; color: var(--text-primary) !important; }
 * { box-sizing: border-box; }
 body { font-family: 'Inter', sans-serif; background: var(--surface-2); color: var(--text-primary); -webkit-font-smoothing: antialiased; }
 h1,h2,h3,h4,h5 { font-family: 'Plus Jakarta Sans', sans-serif; }

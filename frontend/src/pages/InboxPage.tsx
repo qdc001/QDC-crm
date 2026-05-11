@@ -4,7 +4,7 @@ import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
   Inbox, Building2, User as UserIcon, Star, Archive, Edit3, Trash2,
-  Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff,
+  Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, MoreVertical, Calendar,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -398,6 +398,9 @@ export default function InboxPage() {
       }
     } catch {}
   };
+
+  // Mini modal nova tarefa
+  const [newTaskFor, setNewTaskFor] = useState<{ leadId?: string | null; contactName: string } | null>(null);
 
   // Pesquisa avançada
   const [showAdvSearch, setShowAdvSearch] = useState(false);
@@ -1599,6 +1602,15 @@ export default function InboxPage() {
               </button>
             </div>
 
+            <button
+              onClick={() => setNewTaskFor({ leadId: selected.leadId, contactName: fullName(selected.contact) })}
+              className="btn btn-primary py-1.5 text-xs w-full"
+              disabled={!selected.leadId}
+              title={!selected.leadId ? 'Cria primeiro um lead para esta conversa' : 'Adicionar tarefa para este lead'}
+            >
+              <CheckSquare size={12} /> Nova tarefa
+            </button>
+
             {/* Atribuir responsavel */}
             <div className="space-y-1">
               <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Responsavel</p>
@@ -1697,6 +1709,16 @@ export default function InboxPage() {
         />
       )}
 
+      {/* Mini modal Nova Tarefa */}
+      {newTaskFor && (
+        <QuickNewTaskModal
+          leadId={newTaskFor.leadId || null}
+          contactName={newTaskFor.contactName}
+          onClose={() => setNewTaskFor(null)}
+          onCreated={() => { setNewTaskFor(null); toast.success('Tarefa criada'); }}
+        />
+      )}
+
       {/* Lightbox de imagem */}
       {lightboxUrl && (
         <div
@@ -1730,6 +1752,116 @@ export default function InboxPage() {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Mini modal Nova Tarefa (tratamento de tarefa única) ───
+function QuickNewTaskModal({ leadId, contactName, onClose, onCreated }: {
+  leadId: string | null;
+  contactName: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [title, setTitle] = useState(`Seguir ${contactName}`);
+  const [type, setType] = useState('FOLLOW_UP');
+  const [priority, setPriority] = useState('MEDIUM');
+  const [dueAt, setDueAt] = useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+    return d.toISOString().slice(0, 16);
+  });
+  const [saving, setSaving] = useState(false);
+  const [existing, setExisting] = useState<any | null>(null);
+
+  const submit = async (force = false) => {
+    if (!leadId) { toast.error('Esta conversa não tem lead associado'); return; }
+    setSaving(true);
+    try {
+      await api.post('/tasks', {
+        title, type, priority, leadId,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+        force,
+      });
+      onCreated();
+    } catch (e: any) {
+      if (e.response?.status === 409) {
+        setExisting(e.response.data.existingTask);
+      } else {
+        toast.error(e.response?.data?.message || 'Erro');
+      }
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+      <div className="card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-base">Nova tarefa</h3>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {existing ? (
+          <div className="space-y-3">
+            <div className="card p-3" style={{ background: '#FEF3C7', border: '1px solid #FBBF24' }}>
+              <p className="text-sm font-medium" style={{ color: '#92400E' }}>Já existe uma tarefa pendente:</p>
+              <p className="text-sm mt-2 font-semibold">{existing.title}</p>
+              <p className="text-xs mt-1" style={{ color: '#92400E' }}>
+                {existing.dueAt ? `Prazo: ${new Date(existing.dueAt).toLocaleString('pt-PT')}` : 'Sem prazo'}
+                {' · '}{existing.priority}
+                {' · '}{existing.status}
+              </p>
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Podes ver a tarefa em <strong>Tarefas</strong>, ou criar uma nova mesmo assim.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
+              <button onClick={() => submit(true)} disabled={saving} className="btn btn-primary flex-1 py-2">
+                {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar mesmo assim'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium mb-1">Título</label>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-base text-sm" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium mb-1">Tipo</label>
+                <select value={type} onChange={(e) => setType(e.target.value)} className="input-base text-sm">
+                  <option value="CALL">Chamada</option>
+                  <option value="EMAIL">Email</option>
+                  <option value="MEETING">Reunião</option>
+                  <option value="FOLLOW_UP">Seguimento</option>
+                  <option value="DEMO">Demo</option>
+                  <option value="OTHER">Outra</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Prioridade</label>
+                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="input-base text-sm">
+                  <option value="LOW">Baixa</option>
+                  <option value="MEDIUM">Média</option>
+                  <option value="HIGH">Alta</option>
+                  <option value="URGENT">Urgente</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Prazo</label>
+              <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="input-base text-sm" style={{ colorScheme: 'dark' }} />
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
+              <button onClick={() => submit(false)} disabled={saving || !title.trim()} className="btn btn-primary flex-1 py-2">
+                {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar tarefa'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

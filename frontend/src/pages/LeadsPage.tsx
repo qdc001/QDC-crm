@@ -211,6 +211,16 @@ export default function LeadsPage() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Lead | null>(null);
 
+  // Multi-selecção
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSel = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   // Sincronizar pesquisa com store global
   useEffect(() => {
     setSearch(globalSearchQuery || '');
@@ -355,6 +365,34 @@ export default function LeadsPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!confirm(`Eliminar ${ids.length} leads seleccionados? Esta acção não pode ser desfeita.`)) return;
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/leads/${id}`)));
+      setLeads((prev) => prev.filter((l) => !selectedIds.has(l.id)));
+      setSelectedIds(new Set());
+      setTotal((t) => Math.max(0, t - ids.length));
+      toast.success(`${ids.length} leads eliminados`);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao eliminar');
+    }
+  };
+
+  const handleBulkAssign = async (userId: string) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    try {
+      await Promise.all(ids.map((id) => api.patch(`/leads/${id}`, { assignedToId: userId })));
+      setLeads((prev) => prev.map((l) => selectedIds.has(l.id) ? { ...l, assignedToId: userId, assignedTo: users.find((u) => u.id === userId) as any } : l));
+      setSelectedIds(new Set());
+      toast.success('Leads reatribuídos');
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const hasFilters = !!(search || pipelineId || stageId || status || priority || assignedToId);
 
@@ -385,6 +423,31 @@ export default function LeadsPage() {
           </button>
         </div>
       </div>
+
+      {/* Bulk actions bar */}
+      {selectedIds.size > 0 && (
+        <div className="px-4 py-2 flex items-center gap-3 flex-wrap" style={{ borderBottom: '1px solid var(--border)', background: 'var(--primary-light)' }}>
+          <span className="text-sm font-medium" style={{ color: 'var(--primary)' }}>
+            {selectedIds.size} lead{selectedIds.size > 1 ? 's' : ''} seleccionado{selectedIds.size > 1 ? 's' : ''}
+          </span>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs underline" style={{ color: 'var(--text-muted)' }}>
+            Limpar selecção
+          </button>
+          <div className="flex-1" />
+          <select
+            onChange={(e) => { if (e.target.value) handleBulkAssign(e.target.value); e.target.value = ''; }}
+            className="input-base text-xs"
+            style={{ width: 200 }}
+            defaultValue=""
+          >
+            <option value="" disabled>Atribuir a...</option>
+            {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+          <button onClick={handleBulkDelete} className="btn text-xs py-1.5 px-3" style={{ background: '#FEE2E2', color: '#DC2626' }}>
+            <Trash2 size={12} /> Eliminar
+          </button>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="p-3 flex flex-wrap items-center gap-2" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
@@ -479,6 +542,16 @@ export default function LeadsPage() {
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
             <thead style={{ background: 'var(--surface-2)', position: 'sticky', top: 0, zIndex: 1 }}>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th className="px-2 py-2 w-8">
+                  <input
+                    type="checkbox"
+                    checked={leads.length > 0 && selectedIds.size === leads.length}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedIds(new Set(leads.map((l) => l.id)));
+                      else setSelectedIds(new Set());
+                    }}
+                  />
+                </th>
                 <th className="text-left px-3 py-2 font-medium" style={{ color: 'var(--text-secondary)' }}>
                   <button onClick={() => toggleSort('title')} className="flex items-center gap-1 text-xs uppercase">
                     Titulo {sortIcon('title')}
@@ -519,8 +592,15 @@ export default function LeadsPage() {
                 <tr
                   key={lead.id}
                   className="hover:bg-slate-50"
-                  style={{ borderBottom: '1px solid var(--border)' }}
+                  style={{ borderBottom: '1px solid var(--border)', background: selectedIds.has(lead.id) ? 'var(--primary-light)' : undefined }}
                 >
+                  <td className="px-2 py-2 w-8" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(lead.id)}
+                      onChange={() => toggleSel(lead.id)}
+                    />
+                  </td>
                   <td className="px-3 py-2">
                     <button
                       onClick={() => setEditing(lead)}

@@ -9,7 +9,7 @@ import {
   List as ListIcon, RotateCcw, AlertCircle, ExternalLink, Download,
   Phone, Mail, Users as UsersIcon, Repeat, Briefcase, Circle,
   ChevronLeft, ChevronRight, CheckSquare, Square, MinusSquare,
-  Tags as TagsIcon, Layout, Flag, Clock, User as UserIcon,
+  Tags as TagsIcon, Layout, Flag, Clock, User as UserIcon, MessageSquare,
 } from 'lucide-react';
 import api, { Task, User, Lead, Tag as TagType, Pipeline, Stage } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -162,7 +162,21 @@ function TaskFormModal({
       onSaved(saved);
       onClose();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Erro a guardar');
+      if (err.response?.status === 409 && err.response?.data?.existingTask) {
+        const ex = err.response.data.existingTask;
+        const dueStr = ex.dueAt ? new Date(ex.dueAt).toLocaleString('pt-PT') : 'sem prazo';
+        const confirmed = window.confirm(
+          `Já existe tarefa pendente para este lead:\n\n${ex.title}\nPrazo: ${dueStr}\nPrioridade: ${ex.priority}\n\nCriar nova mesmo assim?`
+        );
+        if (confirmed) {
+          try {
+            const { data } = await api.post('/tasks', { ...payload, force: true });
+            onSaved(data); onClose(); toast.success('Tarefa criada');
+          } catch (e2: any) { toast.error(e2.response?.data?.message || 'Erro'); }
+        }
+      } else {
+        toast.error(err.response?.data?.message || 'Erro a guardar');
+      }
     } finally { setLoading(false); }
   };
 
@@ -1278,9 +1292,14 @@ export default function TasksPage() {
                     <td className="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>{t.assignedTo?.name || '—'}</td>
                     <td className="px-3 py-2">
                       {t.lead ? (
-                        <button onClick={() => navigate(`/pipeline?leadId=${t.lead!.id}`)} className="flex items-center gap-1 text-xs hover:underline" style={{ color: 'var(--primary)' }}>
-                          {t.lead.title} <ExternalLink size={11} />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => navigate(`/pipeline?leadId=${t.lead!.id}`)} className="flex items-center gap-1 text-xs hover:underline" style={{ color: 'var(--primary)' }}>
+                            {t.lead.title} <ExternalLink size={11} />
+                          </button>
+                          <button onClick={() => navigate(`/inbox?leadId=${t.lead!.id}`)} title="Abrir conversa" className="p-1 rounded hover:bg-slate-100">
+                            <MessageSquare size={12} style={{ color: 'var(--primary)' }} />
+                          </button>
+                        </div>
                       ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                     </td>
                     <td className="px-3 py-2">
