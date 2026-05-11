@@ -4,7 +4,7 @@ import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
   Inbox, Building2, User as UserIcon, Star, Archive, Edit3, Trash2,
-  Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp,
+  Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -323,6 +323,7 @@ export default function InboxPage() {
   // Pesquisa local na conversa
   const [convSearch, setConvSearch] = useState('');
   const [showConvSearch, setShowConvSearch] = useState(false);
+  const [showContactPanel, setShowContactPanel] = useState(true);
 
   // Composer
   const [draft, setDraft] = useState('');
@@ -844,28 +845,31 @@ export default function InboxPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button onClick={() => setShowConvSearch(!showConvSearch)} className="p-2 rounded-lg hover:bg-slate-100" title="Pesquisar nesta conversa">
-                  <Search size={16} style={{ color: showConvSearch ? 'var(--primary)' : 'var(--text-secondary)' }} />
+              <div className="flex items-center gap-0.5 flex-shrink-0">
+                <button onClick={() => setShowConvSearch(!showConvSearch)} className="p-1.5 rounded-lg hover:bg-slate-100" title="Pesquisar nesta conversa">
+                  <Search size={15} style={{ color: showConvSearch ? 'var(--primary)' : 'var(--text-secondary)' }} />
                 </button>
-                <button onClick={handleAISummary} className="p-2 rounded-lg hover:bg-slate-100" title="Resumir conversa com IA">
-                  <Sparkles size={16} style={{ color: 'var(--primary)' }} />
+                <button onClick={handleAISummary} className="p-1.5 rounded-lg hover:bg-slate-100" title="Resumir conversa com IA">
+                  <Sparkles size={15} style={{ color: 'var(--primary)' }} />
                 </button>
                 {selected.contact?.whatsapp && (
-                  <a href={`https://wa.me/${cleanPhone(selected.contact.whatsapp)}`} target="_blank" rel="noreferrer" className="p-2 rounded-lg hover:bg-green-50" title="WhatsApp">
-                    <MessageCircle size={16} style={{ color: '#25D366' }} />
+                  <a href={`https://wa.me/${cleanPhone(selected.contact.whatsapp)}`} target="_blank" rel="noreferrer" className="p-1.5 rounded-lg hover:bg-green-50" title="WhatsApp">
+                    <MessageCircle size={15} style={{ color: '#25D366' }} />
                   </a>
                 )}
                 {selected.contact?.phone && (
-                  <a href={`tel:${cleanPhone(selected.contact.phone)}`} className="p-2 rounded-lg hover:bg-slate-100" title="Telefonar">
-                    <Phone size={16} style={{ color: 'var(--text-secondary)' }} />
+                  <a href={`tel:${cleanPhone(selected.contact.phone)}`} className="p-1.5 rounded-lg hover:bg-slate-100" title="Telefonar">
+                    <Phone size={15} style={{ color: 'var(--text-secondary)' }} />
                   </a>
                 )}
-                <button onClick={handleCsatRequest} className="p-2 rounded-lg hover:bg-slate-100" title="Pedir avaliacao (CSAT)">
-                  <ThumbsUp size={16} style={{ color: '#F59E0B' }} />
+                <button onClick={handleCsatRequest} className="p-1.5 rounded-lg hover:bg-slate-100" title="Pedir avaliacao (CSAT)">
+                  <ThumbsUp size={15} style={{ color: '#F59E0B' }} />
                 </button>
-                <button onClick={handleCreateLeadFromConv} className="btn btn-primary text-xs py-1.5 px-3" disabled={!defaultStage}>
-                  <GitBranch size={12} /> Criar Lead
+                <button onClick={handleCreateLeadFromConv} className="btn btn-primary text-xs py-1.5 px-2.5 ml-1" disabled={!defaultStage} title="Criar Lead a partir desta conversa">
+                  <GitBranch size={12} /> <span className="hidden lg:inline">Criar Lead</span>
+                </button>
+                <button onClick={() => setShowContactPanel(!showContactPanel)} className="p-1.5 rounded-lg hover:bg-slate-100 ml-1" title={showContactPanel ? 'Fechar painel do contacto' : 'Abrir painel do contacto'}>
+                  {showContactPanel ? <PanelRightClose size={16} style={{ color: 'var(--text-secondary)' }} /> : <PanelRightOpen size={16} style={{ color: 'var(--text-secondary)' }} />}
                 </button>
               </div>
             </div>
@@ -1121,10 +1125,13 @@ export default function InboxPage() {
       </div>
 
       {/* Painel direito */}
-      {selected && selected.contact && (
+      {selected && selected.contact && showContactPanel && (
         <div className="w-72 flex flex-col flex-shrink-0" style={{ borderLeft: '1px solid var(--border)' }}>
-          <div className="p-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div className="p-4 flex-shrink-0 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border)' }}>
             <h3 className="font-semibold text-sm">Contacto</h3>
+            <button onClick={() => setShowContactPanel(false)} className="p-1 rounded hover:bg-slate-100" title="Fechar">
+              <X size={14} style={{ color: 'var(--text-muted)' }} />
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="text-center">

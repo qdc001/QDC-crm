@@ -5,6 +5,74 @@ import { AppError } from '../middleware/errorHandler';
 const prisma = new PrismaClient();
 const router = Router();
 
+// Helper: envia WhatsApp via canal disponível (Evolution preferido, depois Cloud API)
+async function sendWhatsAppOut(workspaceId: string, phone: string, content: string, type: string, mediaUrl?: string): Promise<{ ok: boolean; externalId?: string; via?: string; error?: string }> {
+  // 1. Tentar Evolution
+  const evo = await prisma.integration.findFirst({
+    where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+  });
+  if (evo) {
+    const creds: any = evo.credentials || {};
+    if (creds.baseUrl && creds.apiKey && creds.instanceName) {
+      try {
+        const isMedia = type !== 'TEXT' && mediaUrl;
+        const path = isMedia ? `/message/sendMedia/${creds.instanceName}` : `/message/sendText/${creds.instanceName}`;
+        const body: any = { number: phone.replace(/\D/g, '') };
+        if (isMedia) {
+          const mtype = type === 'IMAGE' ? 'image' : type === 'VIDEO' ? 'video' : type === 'AUDIO' ? 'audio' : 'document';
+          body.mediatype = mtype;
+          body.media = mediaUrl;
+          body.caption = content || '';
+          body.fileName = (mediaUrl || '').split('/').pop() || 'file';
+        } else {
+          body.text = content;
+        }
+        const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+          body: JSON.stringify(body),
+        });
+        const data = await r.json();
+        if (r.ok) return { ok: true, externalId: data?.key?.id, via: 'evolution' };
+        return { ok: false, error: data?.message || data?.error || `HTTP ${r.status}` };
+      } catch (e: any) {
+        return { ok: false, error: e.message };
+      }
+    }
+  }
+
+  // 2. Tentar WhatsApp Cloud (Meta)
+  const cloud = await prisma.integration.findFirst({
+    where: { workspaceId, type: 'WHATSAPP', isActive: true },
+  });
+  if (cloud) {
+    const creds: any = cloud.credentials || {};
+    const token = creds.accessToken || creds.token;
+    const phoneId = creds.phoneNumberId || creds.phoneId;
+    if (token && phoneId) {
+      try {
+        let body: any;
+        if (type === 'TEXT' || !mediaUrl) {
+          body = { messaging_product: 'whatsapp', to: phone.replace(/\D/g, ''), type: 'text', text: { body: content } };
+        } else {
+          const mtype = type.toLowerCase();
+          body = { messaging_product: 'whatsapp', to: phone.replace(/\D/g, ''), type: mtype, [mtype]: { link: mediaUrl, caption: content } };
+        }
+        const r = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
+        });
+        const data = await r.json();
+        if (r.ok) return { ok: true, externalId: data.messages?.[0]?.id, via: 'cloud' };
+        return { ok: false, error: data?.error?.message || `HTTP ${r.status}` };
+      } catch (e: any) { return { ok: false, error: e.message }; }
+    }
+  }
+
+  return { ok: false, error: 'Sem integração WhatsApp activa' };
+}
+
 const messageInclude = {
   sentBy: { select: { id: true, name: true, avatar: true } },
   contact: { select: { id: true, firstName: true, lastName: true } },
@@ -135,18 +203,45 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     const { content, channel, contactId, leadId, type, direction, mediaUrl, mediaType, replyToId, isInternal } = req.body;
     if (!content) throw new AppError('Conteudo obrigatorio', 400);
     if (!channel) throw new AppError('Canal obrigatorio', 400);
+
+    let externalId: string | undefined;
+    let status = 'PENDING';
+    let sendError: string | undefined;
+
+    // Enviar via canal externo (WhatsApp) se não for nota interna nem inbound
+    const shouldSend = !isInternal && channel === 'WHATSAPP' && (direction || 'OUTBOUND') === 'OUTBOUND' && contactId;
+    if (shouldSend) {
+      const contact = await prisma.contact.findUnique({ where: { id: contactId } });
+      const phone = contact?.whatsapp || contact?.phone;
+      if (!phone) {
+        sendError = 'Contacto sem número de WhatsApp';
+      } else {
+        const result = await sendWhatsAppOut(req.user!.workspaceId, phone, content, type || 'TEXT', mediaUrl);
+        if (result.ok) {
+          externalId = result.externalId;
+          status = 'SENT';
+        } else {
+          sendError = result.error;
+          status = 'FAILED';
+        }
+      }
+    } else {
+      status = 'SENT'; // notas internas ou outros canais: marca SENT
+    }
+
     const message = await prisma.message.create({
       data: {
         content,
         channel,
         type: type || 'TEXT',
         direction: direction || 'OUTBOUND',
-        status: 'SENT',
+        status: status as any,
         contactId: contactId || null,
         leadId: leadId || null,
         replyToId: replyToId || null,
         isInternal: !!isInternal,
         mediaUrl, mediaType,
+        externalId,
         sentById: req.user!.id,
       },
       include: messageInclude,
@@ -154,6 +249,10 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
     const io = req.app.get('io');
     if (message.leadId) io.to(`lead:${message.leadId}`).emit('message:new', message);
     io.to(`workspace:${req.user!.workspaceId}`).emit('message:new', message);
+
+    if (sendError) {
+      return res.status(201).json({ ...message, sendError });
+    }
     res.status(201).json(message);
   } catch (e) { next(e); }
 });
