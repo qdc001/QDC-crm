@@ -9,16 +9,18 @@ const router = Router();
 const contactInclude = {
   tags: { include: { tag: true } },
   customValues: { include: { field: true } },
+  assignedTo: { select: { id: true, name: true, avatar: true } },
   _count: { select: { leads: true } },
 };
 
 // GET /api/contacts
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { search, type, tagId, page = 1, limit = 50 } = req.query;
+    const { search, type, tagId, assignedToId, page = 1, limit = 50 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
     const where: any = { workspaceId: req.user!.workspaceId };
     if (type) where.type = type;
+    if (assignedToId) where.assignedToId = assignedToId;
     if (search) where.OR = [
       { firstName: { contains: search as string, mode: 'insensitive' } },
       { lastName: { contains: search as string, mode: 'insensitive' } },

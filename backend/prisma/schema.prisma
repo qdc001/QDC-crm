@@ -41,6 +41,7 @@ model User {
   inviteToken  InviteToken?
 
   assignedLeads    Lead[]       @relation("AssignedLeads")
+  assignedContacts Contact[]    @relation("AssignedContacts")
   createdLeads     Lead[]       @relation("CreatedLeads")
   tasks            Task[]
   messages         Message[]
@@ -231,6 +232,9 @@ model Contact {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workspaceId String
 
+  assignedTo   User?   @relation("AssignedContacts", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedToId String?
+
   leads        Lead[]
   broadcastRecipients BroadcastRecipient[]
   messages     Message[]
@@ -240,6 +244,7 @@ model Contact {
   csatRequests CsatRequest[]
   tasks        Task[]
 
+  @@index([assignedToId])
   @@map("contacts")
 }
 

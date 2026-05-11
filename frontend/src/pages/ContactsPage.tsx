@@ -8,7 +8,7 @@ import {
   Columns, Tags as TagsIcon, CheckSquare, Square, MinusSquare, Image as ImageIcon,
   GitBranch,
 } from 'lucide-react';
-import api, { Contact, Lead, Tag as TagType, CustomField, CustomFieldType } from '../lib/api';
+import api, { Contact, Lead, Tag as TagType, CustomField, CustomFieldType, User } from '../lib/api';
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
 import { CustomFieldInput, AddLeadModal } from './PipelinePage';
@@ -517,6 +517,9 @@ function ContactFormModal({
   const [city, setCity] = useState(contact?.city || '');
   const [country, setCountry] = useState(contact?.country || 'Mocambique');
   const [notes, setNotes] = useState((contact as any)?.notes || '');
+  const [assignedToId, setAssignedToId] = useState<string>((contact as any)?.assignedToId || (contact as any)?.assignedTo?.id || '');
+  const [users, setUsers] = useState<User[]>([]);
+  useEffect(() => { api.get('/users').then((r) => setUsers(r.data)).catch(() => {}); }, []);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
     contact?.tags?.map((tc: any) => tc.tag?.id || tc.tagId).filter(Boolean) || []
   );
@@ -548,6 +551,7 @@ function ContactFormModal({
       const payload: any = {
         type, firstName, lastName, email, phone, whatsapp, company, position,
         website, avatar, address, city, country, notes,
+        assignedToId: assignedToId || null,
         tags: selectedTagIds,
         customValues: customFields.map((f) => ({ fieldId: f.id, value: customValues[f.id] || '' })),
       };
@@ -655,6 +659,14 @@ function ContactFormModal({
                 </div>
               </div>
             )}
+
+            <div>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Responsável</label>
+              <select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)} className="input-base">
+                <option value="">— Sem responsável —</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
 
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>URL da foto (avatar)</label>
@@ -790,8 +802,13 @@ export default function ContactsPage() {
   const [sortKey, setSortKey] = useState<SortKey>('firstName');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 100;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ContactWithMeta | null>(null);
+  const [newTaskFor, setNewTaskFor] = useState<ContactWithMeta | null>(null);
   const [importing, setImporting] = useState(false);
   const [showColumns, setShowColumns] = useState(false);
   const [showTagsManager, setShowTagsManager] = useState(false);
@@ -826,7 +843,8 @@ export default function ContactsPage() {
     if (search.trim()) params.set('search', search.trim());
     if (typeFilter) params.set('type', typeFilter);
     if (tagFilter) params.set('tagId', tagFilter);
-    params.set('limit', '1000');
+    params.set('limit', String(PAGE_SIZE));
+    params.set('page', String(page));
     setLoading(true);
     api.get(`/contacts?${params.toString()}`)
       .then(({ data }) => {
@@ -841,7 +859,10 @@ export default function ContactsPage() {
     loadContacts();
     setSelectedIds(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, typeFilter, tagFilter]);
+  }, [search, typeFilter, tagFilter, page]);
+
+  // Quando muda filtro de pesquisa, voltar à página 1
+  useEffect(() => { setPage(1); }, [search, typeFilter, tagFilter]);
 
   const queryContactId = searchParams.get('contactId');
   useEffect(() => {
@@ -1143,6 +1164,7 @@ export default function ContactsPage() {
                       {c.whatsapp && <a href={`https://wa.me/${cleanPhone(c.whatsapp)}`} target="_blank" rel="noreferrer" className="p-1.5 rounded hover:bg-green-50" title="WhatsApp" onClick={(e) => e.stopPropagation()}><MessageCircle size={14} style={{ color: '#25D366' }} /></a>}
                       {c.phone && <a href={`tel:${cleanPhone(c.phone)}`} className="p-1.5 rounded hover:bg-slate-100" title="Telefonar" onClick={(e) => e.stopPropagation()}><PhoneCall size={14} style={{ color: 'var(--text-secondary)' }} /></a>}
                       {c.email && <a href={`mailto:${c.email}`} className="p-1.5 rounded hover:bg-slate-100" title="Email" onClick={(e) => e.stopPropagation()}><Mail size={14} style={{ color: 'var(--text-secondary)' }} /></a>}
+                      <button onClick={(e) => { e.stopPropagation(); setNewTaskFor(c); }} className="p-1.5 rounded hover:bg-blue-50" title="Adicionar tarefa"><CheckSquare size={14} style={{ color: 'var(--primary)' }} /></button>
                       <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-slate-100" title="Editar"><Edit3 size={14} style={{ color: 'var(--text-secondary)' }} /></button>
                       <button onClick={() => handleDelete(c)} className="p-1.5 rounded hover:bg-red-50" title="Eliminar"><Trash2 size={14} style={{ color: '#EF4444' }} /></button>
                     </div>
@@ -1151,6 +1173,24 @@ export default function ContactsPage() {
               ))}
             </tbody>
           </table>
+        )}
+
+        {/* Paginação */}
+        {!loading && total > PAGE_SIZE && (
+          <div className="flex items-center justify-between py-3 px-4" style={{ borderTop: '1px solid var(--border)' }}>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              A mostrar {((page - 1) * PAGE_SIZE) + 1}-{Math.min(page * PAGE_SIZE, total)} de <strong>{total}</strong> contactos
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setPage(1)} disabled={page === 1} className="btn text-xs py-1 px-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)', opacity: page === 1 ? 0.5 : 1 }}>« Primeira</button>
+              <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1} className="btn text-xs py-1 px-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)', opacity: page === 1 ? 0.5 : 1 }}>‹ Anterior</button>
+              <span className="text-xs px-2" style={{ color: 'var(--text-secondary)' }}>
+                Página <strong>{page}</strong> de <strong>{totalPages}</strong>
+              </span>
+              <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page >= totalPages} className="btn text-xs py-1 px-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)', opacity: page >= totalPages ? 0.5 : 1 }}>Seguinte ›</button>
+              <button onClick={() => setPage(totalPages)} disabled={page >= totalPages} className="btn text-xs py-1 px-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)', opacity: page >= totalPages ? 0.5 : 1 }}>Última »</button>
+            </div>
+          </div>
         )}
       </div>
 
@@ -1188,6 +1228,107 @@ export default function ContactsPage() {
           onCreated={() => { setCreatingLeadFor(null); setPipelineForLead(null); loadContacts(); }}
         />
       )}
+
+      {newTaskFor && (
+        <QuickContactTaskModal
+          contact={newTaskFor}
+          onClose={() => setNewTaskFor(null)}
+          onCreated={() => { setNewTaskFor(null); toast.success('Tarefa criada'); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============== Mini modal: Nova Tarefa para Contacto ==============
+function QuickContactTaskModal({ contact, onClose, onCreated }: {
+  contact: ContactWithMeta;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const fullName = `${contact.firstName}${contact.lastName ? ' ' + contact.lastName : ''}`;
+  const [title, setTitle] = useState(`Seguir ${fullName}`);
+  const [type, setType] = useState('FOLLOW_UP');
+  const [priority, setPriority] = useState('MEDIUM');
+  const [dueAt, setDueAt] = useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+    return d.toISOString().slice(0, 16);
+  });
+  const [saving, setSaving] = useState(false);
+  const [existing, setExisting] = useState<any | null>(null);
+
+  const submit = async (force = false) => {
+    setSaving(true);
+    try {
+      await api.post('/tasks', {
+        title, type, priority,
+        contactId: contact.id,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+        force,
+      });
+      onCreated();
+    } catch (e: any) {
+      if (e.response?.status === 409) {
+        setExisting(e.response.data.existingTask);
+      } else {
+        toast.error(e.response?.data?.message || 'Erro');
+      }
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+      <div className="card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-base">Nova tarefa · {fullName}</h3>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {existing ? (
+          <div className="space-y-3">
+            <div className="card p-3" style={{ background: '#FEF3C7', border: '1px solid #FBBF24' }}>
+              <p className="text-sm font-medium" style={{ color: '#92400E' }}>Já existe tarefa pendente:</p>
+              <p className="text-sm mt-2 font-semibold">{existing.title}</p>
+              <p className="text-xs mt-1" style={{ color: '#92400E' }}>
+                {existing.dueAt ? `Prazo: ${new Date(existing.dueAt).toLocaleString('pt-PT')}` : 'Sem prazo'} · {existing.priority} · {existing.status}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
+              <button onClick={() => submit(true)} disabled={saving} className="btn btn-primary flex-1 py-2">
+                {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar mesmo assim'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-base text-sm" placeholder="Título" />
+            <div className="grid grid-cols-2 gap-2">
+              <select value={type} onChange={(e) => setType(e.target.value)} className="input-base text-sm">
+                <option value="CALL">Chamada</option>
+                <option value="EMAIL">Email</option>
+                <option value="MEETING">Reunião</option>
+                <option value="FOLLOW_UP">Seguimento</option>
+                <option value="DEMO">Demo</option>
+                <option value="OTHER">Outra</option>
+              </select>
+              <select value={priority} onChange={(e) => setPriority(e.target.value)} className="input-base text-sm">
+                <option value="LOW">Baixa</option>
+                <option value="MEDIUM">Média</option>
+                <option value="HIGH">Alta</option>
+                <option value="URGENT">Urgente</option>
+              </select>
+            </div>
+            <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="input-base text-sm" />
+            <div className="flex gap-2 mt-2">
+              <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
+              <button onClick={() => submit(false)} disabled={saving || !title.trim()} className="btn btn-primary flex-1 py-2">
+                {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
