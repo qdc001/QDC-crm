@@ -153,9 +153,19 @@ router.post('/evolution', async (req: Request, res: Response) => {
     }
 
     // Mensagens novas
-    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' || event === 'message') {
-      // Pode ser um array em data.messages OU um objecto único
-      const messages = Array.isArray(data?.messages) ? data.messages : (data?.key ? [data] : []);
+    if (event === 'messages.upsert' || event === 'MESSAGES_UPSERT' || event === 'message' || event === 'send.message') {
+      // Evolution v2: data é o próprio objecto da mensagem (data.key + data.message)
+      // Evolution v1: data.messages é array
+      const messages = Array.isArray(data?.messages)
+        ? data.messages
+        : (data?.key && (data?.message || data?.messageType))
+          ? [data]
+          : [];
+
+      if (messages.length === 0) {
+        console.log('Evolution webhook: nenhuma mensagem extraída. Event:', event, 'Keys data:', data ? Object.keys(data).join(',') : '(vazio)');
+      }
+
       for (const m of messages) {
         // Ignorar mensagens enviadas pelo próprio operador (fromMe = true) — vêm do envio que já guardámos
         if (m.key?.fromMe) continue;
@@ -175,28 +185,40 @@ router.post('/evolution', async (req: Request, res: Response) => {
 
         const creds: any = matched.credentials || {};
 
-        if (msg.conversation) {
-          content = msg.conversation;
-        } else if (msg.extendedTextMessage?.text) {
-          content = msg.extendedTextMessage.text;
-        } else if (msg.imageMessage) {
-          msgType = 'IMAGE'; content = msg.imageMessage.caption || '[Imagem]';
+        // Evolution v2 às vezes embrulha em ephemeralMessage / viewOnceMessage / etc
+        const unwrapped =
+          msg.ephemeralMessage?.message ||
+          msg.viewOnceMessage?.message ||
+          msg.viewOnceMessageV2?.message ||
+          msg.documentWithCaptionMessage?.message ||
+          msg;
+
+        if (unwrapped.conversation || msg.conversation) {
+          content = unwrapped.conversation || msg.conversation;
+        } else if (unwrapped.extendedTextMessage?.text || msg.extendedTextMessage?.text) {
+          content = unwrapped.extendedTextMessage?.text || msg.extendedTextMessage.text;
+        } else if (unwrapped.imageMessage || msg.imageMessage) {
+          const im = unwrapped.imageMessage || msg.imageMessage;
+          msgType = 'IMAGE'; content = im.caption || '[Imagem]';
           const local = await fetchMediaFromEvolution(creds, m, 'jpg');
-          mediaUrl = local ? absoluteUrl(req, local) : msg.imageMessage.url;
-        } else if (msg.videoMessage) {
-          msgType = 'VIDEO'; content = msg.videoMessage.caption || '[Vídeo]';
+          mediaUrl = local ? absoluteUrl(req, local) : im.url;
+        } else if (unwrapped.videoMessage || msg.videoMessage) {
+          const vm = unwrapped.videoMessage || msg.videoMessage;
+          msgType = 'VIDEO'; content = vm.caption || '[Vídeo]';
           const local = await fetchMediaFromEvolution(creds, m, 'mp4');
-          mediaUrl = local ? absoluteUrl(req, local) : msg.videoMessage.url;
-        } else if (msg.audioMessage) {
+          mediaUrl = local ? absoluteUrl(req, local) : vm.url;
+        } else if (unwrapped.audioMessage || msg.audioMessage) {
+          const am = unwrapped.audioMessage || msg.audioMessage;
           msgType = 'AUDIO'; content = '[Áudio]';
           const local = await fetchMediaFromEvolution(creds, m, 'ogg');
-          mediaUrl = local ? absoluteUrl(req, local) : msg.audioMessage.url;
-        } else if (msg.documentMessage) {
+          mediaUrl = local ? absoluteUrl(req, local) : am.url;
+        } else if (unwrapped.documentMessage || msg.documentMessage) {
+          const dm = unwrapped.documentMessage || msg.documentMessage;
           msgType = 'DOCUMENT';
-          content = msg.documentMessage.fileName || '[Documento]';
-          const ext = (msg.documentMessage.fileName || '').split('.').pop() || 'bin';
+          content = dm.fileName || '[Documento]';
+          const ext = (dm.fileName || '').split('.').pop() || 'bin';
           const local = await fetchMediaFromEvolution(creds, m, ext);
-          mediaUrl = local ? absoluteUrl(req, local) : msg.documentMessage.url;
+          mediaUrl = local ? absoluteUrl(req, local) : dm.url;
         } else if (msg.locationMessage) {
           msgType = 'LOCATION';
           content = `Localização: ${msg.locationMessage.degreesLatitude}, ${msg.locationMessage.degreesLongitude}`;
@@ -209,6 +231,9 @@ router.post('/evolution', async (req: Request, res: Response) => {
           interactiveId = msg.listResponseMessage.singleSelectReply?.selectedRowId || null;
           content = msg.listResponseMessage.title || interactiveId || '[Lista]';
         } else {
+          // Diagnóstico: tipo de mensagem não reconhecido
+          const keys = Object.keys(msg).join(',');
+          console.log('Evolution webhook: tipo desconhecido. Chaves do msg:', keys, '| messageType:', m.messageType);
           content = '[Mensagem]';
         }
 

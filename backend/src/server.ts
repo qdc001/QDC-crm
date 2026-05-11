@@ -64,7 +64,22 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
+  maxAge: '7d',
+  setHeaders: (res, filePath) => {
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    // Forçar Content-Type para alguns formatos comuns
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    const mimes: Record<string, string> = {
+      webm: 'audio/webm', ogg: 'audio/ogg', mp3: 'audio/mpeg', wav: 'audio/wav',
+      m4a: 'audio/mp4', mp4: 'video/mp4', mov: 'video/quicktime',
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+      pdf: 'application/pdf',
+    };
+    if (ext && mimes[ext]) res.setHeader('Content-Type', mimes[ext]);
+  },
+}));
 app.use(rateLimiter);
 
 // Socket.io - real-time events
