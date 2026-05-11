@@ -762,21 +762,21 @@ export default function InboxPage() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Preferir audio/mp4 (compatível com Safari + WhatsApp), depois webm/opus, depois ogg
+      // Preferir ogg/opus (WhatsApp aceita nativamente sem conversão), depois webm/opus, m4a, fallback
       const mimeType =
-        MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' :
+        MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' :
         MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' :
-        MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' :
-        MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : '';
+        MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' :
+        MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
       const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       mediaRecorderRef.current = mr;
       audioChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        const finalMime = mr.mimeType || mimeType || 'audio/webm';
+        const finalMime = mr.mimeType || mimeType || 'audio/ogg';
         const blob = new Blob(audioChunksRef.current, { type: finalMime });
-        const ext = finalMime.includes('mp4') ? 'm4a' : finalMime.includes('ogg') ? 'ogg' : 'webm';
+        const ext = finalMime.includes('ogg') ? 'ogg' : finalMime.includes('mp4') ? 'm4a' : 'webm';
         const file = new File([blob], `audio_${Date.now()}.${ext}`, { type: finalMime });
         await uploadAudio(file);
       };

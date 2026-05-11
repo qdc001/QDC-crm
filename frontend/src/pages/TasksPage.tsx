@@ -107,6 +107,7 @@ function TaskFormModal({
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(task?.tags?.map((t: any) => t.tag?.id).filter(Boolean) || []);
   const [subtasks, setSubtasks] = useState<Task[]>(task?.subtasks || []);
   const [newSubtask, setNewSubtask] = useState('');
+  const [newSubtaskDue, setNewSubtaskDue] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
   const toggleTag = (id: string) =>
@@ -116,10 +117,15 @@ function TaskFormModal({
     if (!newSubtask.trim() || !task?.id) return;
     try {
       const { data } = await api.post('/tasks', {
-        title: newSubtask.trim(), parentTaskId: task.id, status: 'PENDING',
+        title: newSubtask.trim(),
+        parentTaskId: task.id,
+        status: 'PENDING',
+        dueAt: newSubtaskDue ? new Date(newSubtaskDue).toISOString() : null,
+        assignedToId: task.assignedToId,
       });
       setSubtasks((p) => [...p, data]);
       setNewSubtask('');
+      setNewSubtaskDue('');
     } catch { toast.error('Erro a criar subtarefa'); }
   };
 
@@ -283,24 +289,40 @@ function TaskFormModal({
                       style={{ background: sub.status === 'COMPLETED' ? '#10B981' : 'transparent', borderColor: sub.status === 'COMPLETED' ? '#10B981' : 'var(--border)' }}>
                       {sub.status === 'COMPLETED' && <Check size={10} style={{ color: '#fff' }} />}
                     </button>
-                    <span className="flex-1" style={{ color: 'var(--text-primary)', textDecoration: sub.status === 'COMPLETED' ? 'line-through' : 'none', opacity: sub.status === 'COMPLETED' ? 0.6 : 1 }}>
-                      {sub.title}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p style={{ color: 'var(--text-primary)', textDecoration: sub.status === 'COMPLETED' ? 'line-through' : 'none', opacity: sub.status === 'COMPLETED' ? 0.6 : 1 }}>
+                        {sub.title}
+                      </p>
+                      {sub.dueAt && (
+                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                          {new Date(sub.dueAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}
+                        </p>
+                      )}
+                    </div>
                     <button type="button" onClick={() => deleteSubtask(sub)} className="p-1 rounded hover:bg-red-50">
                       <Trash2 size={12} style={{ color: '#EF4444' }} />
                     </button>
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <input
                   value={newSubtask}
                   onChange={(e) => setNewSubtask(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
                   placeholder="Adicionar subtarefa..."
-                  className="input-base flex-1"
+                  className="input-base"
                 />
-                <button type="button" onClick={addSubtask} className="btn btn-primary py-2 px-3"><Plus size={14} /></button>
+                <div className="flex gap-1">
+                  <input
+                    type="datetime-local"
+                    value={newSubtaskDue}
+                    onChange={(e) => setNewSubtaskDue(e.target.value)}
+                    className="input-base flex-1 text-xs"
+                    title="Data limite (opcional)"
+                  />
+                  <button type="button" onClick={addSubtask} className="btn btn-primary py-2 px-3"><Plus size={14} /></button>
+                </div>
               </div>
             </div>
           )}
@@ -542,8 +564,15 @@ function AgendaCard({
       }}
     >
       {task.lead && (
-        <div className="text-xs font-medium mb-1" style={{ color: 'var(--primary)' }}>
-          {task.lead.title}
+        <div className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: 'var(--primary)' }}>
+          <span className="truncate flex-1">{task.lead.title}</span>
+          <button
+            onClick={(e) => { e.stopPropagation(); window.location.href = `/inbox?leadId=${task.lead!.id}`; }}
+            className="p-0.5 rounded hover:bg-white/20 flex-shrink-0"
+            title="Abrir conversa"
+          >
+            <MessageSquare size={11} />
+          </button>
         </div>
       )}
 

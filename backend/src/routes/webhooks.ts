@@ -83,11 +83,39 @@ async function fetchMediaFromEvolution(creds: any, baileysMessage: any, fallback
     const base64 = data?.base64 || data?.media || data;
     if (!base64 || typeof base64 !== 'string') return null;
     const mimeType: string = data?.mimetype || data?.mimeType || '';
-    // Decidir extensão
+    // Decidir extensão a partir do mime type (curto e seguro)
+    const MIME_TO_EXT: Record<string, string> = {
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+      'application/vnd.ms-excel': 'xls',
+      'application/vnd.ms-powerpoint': 'ppt',
+      'application/msword': 'doc',
+      'application/pdf': 'pdf',
+      'application/zip': 'zip',
+      'application/x-rar-compressed': 'rar',
+      'application/x-7z-compressed': '7z',
+      'text/plain': 'txt',
+      'text/csv': 'csv',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+      'audio/mpeg': 'mp3',
+      'audio/mp4': 'm4a',
+      'audio/ogg': 'ogg',
+      'audio/webm': 'webm',
+      'video/mp4': 'mp4',
+      'video/quicktime': 'mov',
+    };
     let ext = fallbackExt;
-    if (mimeType.includes('/')) {
-      const t = mimeType.split('/')[1].split(';')[0];
-      ext = t.replace('mpeg', 'mp3').replace('quicktime', 'mov').replace('jpeg', 'jpg');
+    const cleanMime = mimeType.split(';')[0].trim().toLowerCase();
+    if (MIME_TO_EXT[cleanMime]) {
+      ext = MIME_TO_EXT[cleanMime];
+    } else if (cleanMime.includes('/')) {
+      const t = cleanMime.split('/')[1];
+      // Sanitizar (sem pontos/espacos)
+      ext = t.replace(/[^a-z0-9]/g, '').substring(0, 8) || fallbackExt;
     }
     const fileName = `wa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const filePath = path.join(uploadsDir, fileName);

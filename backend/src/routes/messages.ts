@@ -46,27 +46,38 @@ async function sendWhatsAppOut(workspaceId: string, phone: string, content: stri
     const creds: any = evo.credentials || {};
     if (creds.baseUrl && creds.apiKey && creds.instanceName) {
       try {
-        const isMedia = type !== 'TEXT' && mediaUrl;
-        const path = isMedia ? `/message/sendMedia/${creds.instanceName}` : `/message/sendText/${creds.instanceName}`;
-        const body: any = { number: phone.replace(/\D/g, '') };
-        if (isMedia) {
-          const mtype = type === 'IMAGE' ? 'image' : type === 'VIDEO' ? 'video' : type === 'AUDIO' ? 'audio' : 'document';
-          body.mediatype = mtype;
+        let path: string;
+        let body: any = { number: phone.replace(/\D/g, '') };
+
+        if (type === 'AUDIO' && mediaUrl) {
+          // Endpoint dedicado para áudio (converte para opus aceito pelo WhatsApp)
+          path = `/message/sendWhatsAppAudio/${creds.instanceName}`;
+          body.audio = mediaUrl;
+        } else if (type !== 'TEXT' && mediaUrl) {
+          // Mídia (imagem/vídeo/documento)
+          path = `/message/sendMedia/${creds.instanceName}`;
+          body.mediatype = type === 'IMAGE' ? 'image' : type === 'VIDEO' ? 'video' : 'document';
           body.media = mediaUrl;
           body.caption = content || '';
-          body.fileName = (mediaUrl || '').split('/').pop() || 'file';
+          body.fileName = (mediaUrl || '').split('/').pop()?.replace(/^wa_\d+_\w+\./, 'arquivo.') || 'file';
         } else {
+          path = `/message/sendText/${creds.instanceName}`;
           body.text = content;
         }
+
         const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}${path}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
           body: JSON.stringify(body),
         });
-        const data = await r.json();
+        const respText = await r.text();
+        let data: any = respText;
+        try { data = JSON.parse(respText); } catch {}
         if (r.ok) return { ok: true, externalId: data?.key?.id, via: 'evolution' };
+        console.error('Evolution send failed:', r.status, respText.substring(0, 300));
         return { ok: false, error: data?.message || data?.error || `HTTP ${r.status}` };
       } catch (e: any) {
+        console.error('Evolution send exception:', e);
         return { ok: false, error: e.message };
       }
     }
@@ -517,6 +528,33 @@ router.post('/meta', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// DELETE /api/messages/conversation - elimina TODAS as mensagens de uma conversa
+// body: { contactId, channel? }
+// IMPORTANTE: definido ANTES de /:id para não ser interpretado como ID
+router.delete('/conversation', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, channel } = req.body;
+    if (!contactId) throw new AppError('contactId obrigatório', 400);
+
+    const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId: req.user!.workspaceId } });
+    if (!contact) throw new AppError('Contacto não encontrado', 404);
+
+    const where: any = { contactId };
+    if (channel && channel !== 'all') where.channel = channel;
+
+    const result = await prisma.message.deleteMany({ where });
+
+    await prisma.conversationMeta.deleteMany({
+      where: { workspaceId: req.user!.workspaceId, contactId, ...(channel && channel !== 'all' ? { channel } : {}) },
+    }).catch(() => {});
+
+    const io = req.app.get('io');
+    if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('conversation:deleted', { contactId, channel: channel || null });
+
+    res.json({ deleted: result.count });
+  } catch (e) { next(e); }
+});
+
 // DELETE /api/messages/:id
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
@@ -530,30 +568,16 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
-// DELETE /api/messages/conversation - elimina TODAS as mensagens de uma conversa
-// body: { contactId, channel? }
-router.delete('/conversation', async (req: AuthRequest, res: Response, next) => {
+// DUPLICADO (mantido para retro-compatibilidade — pode ser removido)
+router.delete('/_old/conversation', async (req: AuthRequest, res: Response, next) => {
   try {
     const { contactId, channel } = req.body;
     if (!contactId) throw new AppError('contactId obrigatório', 400);
-
-    // Confirmar que o contacto pertence ao workspace
     const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId: req.user!.workspaceId } });
     if (!contact) throw new AppError('Contacto não encontrado', 404);
-
     const where: any = { contactId };
     if (channel && channel !== 'all') where.channel = channel;
-
     const result = await prisma.message.deleteMany({ where });
-
-    // Limpar conversation meta também
-    await prisma.conversationMeta.deleteMany({
-      where: { workspaceId: req.user!.workspaceId, contactId, ...(channel && channel !== 'all' ? { channel } : {}) },
-    }).catch(() => {});
-
-    const io = req.app.get('io');
-    if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('conversation:deleted', { contactId, channel: channel || null });
-
     res.json({ deleted: result.count });
   } catch (e) { next(e); }
 });
