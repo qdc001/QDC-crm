@@ -12,6 +12,54 @@ const prisma = new PrismaClient();
 const uploadsDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
+// Helper: round-robin auto-assignment
+async function autoAssignConversation(workspaceId: string, contactId: string, channel: string): Promise<string | null> {
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { autoAssignEnabled: true } });
+  if (!ws?.autoAssignEnabled) return null;
+
+  const existing = await prisma.conversationMeta.findUnique({
+    where: { workspaceId_contactId_channel: { workspaceId, contactId, channel } },
+  });
+  if (existing?.assignedToId) return existing.assignedToId;
+
+  const agents = await prisma.user.findMany({
+    where: { workspaceId, isActive: true, role: { in: ['AGENT', 'MANAGER'] } },
+    select: { id: true, status: true },
+  });
+  if (agents.length === 0) return null;
+
+  let pool = agents.filter((a) => a.status === 'ONLINE');
+  if (pool.length === 0) pool = agents;
+
+  const counts = await Promise.all(
+    pool.map(async (a) => ({
+      id: a.id,
+      n: await prisma.conversationMeta.count({ where: { workspaceId, assignedToId: a.id, isArchived: false } }),
+    })),
+  );
+  counts.sort((a, b) => a.n - b.n);
+  const chosen = counts[0]?.id;
+  if (!chosen) return null;
+
+  await prisma.conversationMeta.upsert({
+    where: { workspaceId_contactId_channel: { workspaceId, contactId, channel } },
+    create: { workspaceId, contactId, channel, assignedToId: chosen },
+    update: { assignedToId: chosen },
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId: chosen,
+      title: 'Conversa atribuída',
+      body: 'Foi-te atribuída uma nova conversa via round-robin',
+      type: 'auto_assign',
+      link: '/inbox',
+    },
+  }).catch(() => {});
+
+  return chosen;
+}
+
 // Helper: devolve URL absoluto baseado no PUBLIC_API_URL ou request
 function absoluteUrl(req: Request, p: string): string {
   const base = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
@@ -216,6 +264,11 @@ router.post('/evolution', async (req: Request, res: Response) => {
           io.to(`workspace:${workspaceId}`).emit('message:new', saved);
           if (lead) io.to(`lead:${lead.id}`).emit('message:new', saved);
         }
+
+        // Auto-assign round-robin (se workspace tem toggle ON)
+        autoAssignConversation(workspaceId, contact.id, 'WHATSAPP').then((assignedId) => {
+          if (assignedId && io) io.to(`user:${assignedId}`).emit('notification:new', { type: 'auto_assign' });
+        }).catch(() => {});
 
         // Disparar motor de chatbots
         if ((msgType === 'TEXT' || msgType === 'INTERACTIVE') && content) {

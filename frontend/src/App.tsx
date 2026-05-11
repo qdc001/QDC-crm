@@ -18,6 +18,7 @@ import IntegrationsPage from './pages/IntegrationsPage';
 import SettingsPage from './pages/SettingsPage';
 import TeamPage from './pages/TeamPage';
 import BroadcastsPage from './pages/BroadcastsPage';
+import CallsPage from './pages/CallsPage';
 import CsatPublicPage from './pages/CsatPublicPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="team" element={<TeamPage />} />
           <Route path="broadcasts" element={<BroadcastsPage />} />
+          <Route path="calls" element={<CallsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -393,7 +393,7 @@ router.get('/meta', async (req: AuthRequest, res: Response, next) => {
 // POST /api/messages/meta - upsert
 router.post('/meta', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { contactId, channel, isArchived, isPinned, assignedToId, tagIds } = req.body;
+    const { contactId, channel, isArchived, isPinned, assignedToId, tagIds, priority } = req.body;
     const finalChannel = channel === 'all' ? null : channel;
     const existing = await prisma.conversationMeta.findFirst({
       where: { workspaceId: req.user!.workspaceId, contactId, channel: finalChannel },
@@ -406,6 +406,7 @@ router.post('/meta', async (req: AuthRequest, res: Response, next) => {
           ...(isArchived !== undefined && { isArchived }),
           ...(isPinned !== undefined && { isPinned }),
           ...(assignedToId !== undefined && { assignedToId: assignedToId || null }),
+          ...(priority !== undefined && { priority }),
         },
       });
     } else {
@@ -416,6 +417,7 @@ router.post('/meta', async (req: AuthRequest, res: Response, next) => {
           channel: finalChannel,
           isArchived: !!isArchived,
           isPinned: !!isPinned,
+          priority: priority || 'NORMAL',
           assignedToId: assignedToId || null,
         },
       });
@@ -447,6 +449,91 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     }
     await prisma.message.delete({ where: { id: req.params.id } });
     res.json({ message: 'Mensagem eliminada' });
+  } catch (e) { next(e); }
+});
+
+// GET /api/messages/calls - listar chamadas (mensagens SYSTEM com 📞)
+router.get('/calls', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { page = 1, limit = 50, search } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const where: any = {
+      type: 'SYSTEM',
+      content: { contains: '📞', mode: 'insensitive' },
+      contact: { workspaceId: req.user!.workspaceId },
+    };
+    if (search) {
+      where.contact.OR = [
+        { firstName: { contains: search as string, mode: 'insensitive' } },
+        { lastName: { contains: search as string, mode: 'insensitive' } },
+        { phone: { contains: search as string } },
+        { whatsapp: { contains: search as string } },
+      ];
+    }
+
+    const [calls, total] = await Promise.all([
+      prisma.message.findMany({
+        where, skip, take: Number(limit),
+        orderBy: { createdAt: 'desc' },
+        include: { contact: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, avatar: true } } },
+      }),
+      prisma.message.count({ where }),
+    ]);
+
+    res.json({ calls, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+  } catch (e) { next(e); }
+});
+
+// GET /api/messages/export?contactId=&channel=&format=txt|json - exportar conversa
+router.get('/export', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { contactId, channel, format = 'txt' } = req.query;
+    if (!contactId) throw new AppError('contactId obrigatório', 400);
+
+    const where: any = { contactId: contactId as string, isInternal: false };
+    if (channel) where.channel = channel as string;
+
+    const messages = await prisma.message.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+      include: { sentBy: { select: { name: true } } },
+    });
+
+    const contact = await prisma.contact.findFirst({
+      where: { id: contactId as string, workspaceId: req.user!.workspaceId },
+    });
+    if (!contact) throw new AppError('Contacto não encontrado', 404);
+
+    const fullName = `${contact.firstName}${contact.lastName ? ' ' + contact.lastName : ''}`;
+    const filename = `conversa_${fullName.replace(/[^\w]/g, '_')}_${Date.now()}`;
+
+    if (format === 'json') {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.json"`);
+      return res.json({ contact: { name: fullName, phone: contact.phone, whatsapp: contact.whatsapp }, messages });
+    }
+
+    // Default: TXT
+    const lines: string[] = [];
+    lines.push(`Conversa com ${fullName}`);
+    lines.push(`Telefone: ${contact.phone || contact.whatsapp || '-'}`);
+    lines.push(`Exportada em: ${new Date().toLocaleString('pt-PT')}`);
+    lines.push('='.repeat(60));
+    lines.push('');
+
+    for (const m of messages) {
+      const ts = new Date(m.createdAt).toLocaleString('pt-PT');
+      const sender = m.direction === 'INBOUND' ? fullName : (m.sentBy?.name || 'Sistema');
+      lines.push(`[${ts}] ${sender}:`);
+      lines.push(m.content || '(sem texto)');
+      if (m.mediaUrl) lines.push(`  Anexo: ${m.mediaUrl}`);
+      lines.push('');
+    }
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}.txt"`);
+    res.send(lines.join('\n'));
   } catch (e) { next(e); }
 });
 

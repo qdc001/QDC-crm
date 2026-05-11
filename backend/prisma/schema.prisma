@@ -75,6 +75,7 @@ model Workspace {
   primaryColor String  @default("#6366F1")
   dateFormat   String  @default("DD/MM/YYYY")
   fiscalYearStartMonth Int @default(1) // 1 = Janeiro
+  autoAssignEnabled Boolean @default(false) // atribuicao round-robin de conversas novas
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -790,6 +791,7 @@ model ConversationMeta {
   channel      String?   // null = combinado por contacto
   isArchived   Boolean   @default(false)
   isPinned     Boolean   @default(false)
+  priority     String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
   assignedToId String?
   assignedTo   User?     @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
   tags         TagOnConversation[]

@@ -26,6 +26,15 @@ const CHANNEL_COLORS: Record<string, string> = {
   SMS: '#F59E0B', INTERNAL: '#94A3B8',
 };
 
+function priorityColor(p: string): string {
+  const c: Record<string, string> = { LOW: '#94A3B8', NORMAL: '#3B82F6', HIGH: '#F59E0B', URGENT: '#EF4444' };
+  return c[p] || '#94A3B8';
+}
+function priorityLabel(p: string): string {
+  const c: Record<string, string> = { LOW: 'Baixa', NORMAL: 'Normal', HIGH: 'Alta', URGENT: 'Urgente' };
+  return c[p] || p;
+}
+
 function ChannelBadge({ channel, size = 12 }: { channel: string; size?: number }) {
   const color = CHANNEL_COLORS[channel] || '#94A3B8';
   if (channel === 'EMAIL') return <Mail size={size} style={{ color }} />;
@@ -361,6 +370,37 @@ export default function InboxPage() {
   // Lightbox para visualizar imagens em grande
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
+  // Som de notificação ao receber mensagem
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => localStorage.getItem('kommo:soundOn') !== 'false');
+  useEffect(() => { localStorage.setItem('kommo:soundOn', String(soundEnabled)); }, [soundEnabled]);
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const playNotificationSound = () => {
+    if (!soundEnabled) return;
+    try {
+      if (!audioElRef.current) {
+        // tom curto: oscilator via AudioContext (não precisa de ficheiro)
+        const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (!AC) return;
+        const ctx = new AC();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = 880;
+        g.gain.setValueAtTime(0.001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        o.start(); o.stop(ctx.currentTime + 0.35);
+        setTimeout(() => ctx.close(), 500);
+      }
+    } catch {}
+  };
+
+  // Pesquisa avançada
+  const [showAdvSearch, setShowAdvSearch] = useState(false);
+  const [advSearchType, setAdvSearchType] = useState<string>('');
+  const [advSearchFrom, setAdvSearchFrom] = useState<string>('');
+  const [advSearchTo, setAdvSearchTo] = useState<string>('');
+
   // Socket listeners para presence e chamadas
   useEffect(() => {
     const socket = getSocket();
@@ -406,6 +446,10 @@ export default function InboxPage() {
     };
 
     const onMessage = (msg: Message) => {
+      // som para inbound novas
+      if (msg.direction === 'INBOUND' && !msg.isInternal) {
+        playNotificationSound();
+      }
       const matchesSelected =
         !!selected &&
         ((selected.combined && msg.contactId === selected.contact?.id) ||
@@ -595,6 +639,38 @@ export default function InboxPage() {
     if (last && last.state === state && Date.now() - last.at < 4000) return;
     lastPresenceSentRef.current = { state, at: Date.now() };
     api.post('/integrations/evolution/presence', { phone, presence: state }).catch(() => {});
+  };
+
+  const handleExport = async (format: 'txt' | 'json') => {
+    if (!selected?.contact?.id) return;
+    const apiBase = (import.meta.env as any).VITE_API_URL || '';
+    const token = localStorage.getItem('kommo:token') || '';
+    const url = `${apiBase}/api/messages/export?contactId=${selected.contact.id}${selected.channel ? `&channel=${selected.channel}` : ''}&format=${format}`;
+    try {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Erro a exportar');
+      const blob = await res.blob();
+      const link = document.createElement('a');
+      const dlUrl = URL.createObjectURL(blob);
+      link.href = dlUrl;
+      link.download = `conversa_${selected.contact.firstName || 'contacto'}_${Date.now()}.${format}`;
+      document.body.appendChild(link); link.click();
+      document.body.removeChild(link); URL.revokeObjectURL(dlUrl);
+      toast.success('Exportação concluída');
+    } catch (e: any) { toast.error(e.message || 'Erro a exportar'); }
+  };
+
+  const handleSetPriority = async (priority: string) => {
+    if (!selected?.contact?.id) return;
+    try {
+      await api.post('/messages/meta', {
+        contactId: selected.contact.id,
+        channel: selected.combined ? 'all' : selected.channel,
+        priority,
+      });
+      toast.success(`Prioridade: ${priorityLabel(priority)}`);
+      loadConversations();
+    } catch (e: any) { toast.error(e.response?.data?.message || 'Erro'); }
   };
 
   const handleDraftChange = (val: string) => {
@@ -860,10 +936,22 @@ export default function InboxPage() {
 
   // Pesquisa local nas mensagens
   const filteredMessages = useMemo(() => {
-    if (!convSearch.trim()) return messages;
-    const q = convSearch.toLowerCase();
-    return messages.filter((m) => m.content?.toLowerCase().includes(q));
-  }, [messages, convSearch]);
+    let list = messages;
+    if (advSearchType) list = list.filter((m) => m.type === advSearchType);
+    if (advSearchFrom) {
+      const from = new Date(advSearchFrom).getTime();
+      list = list.filter((m) => new Date(m.createdAt).getTime() >= from);
+    }
+    if (advSearchTo) {
+      const to = new Date(advSearchTo).getTime() + 86400000; // fim do dia
+      list = list.filter((m) => new Date(m.createdAt).getTime() <= to);
+    }
+    if (convSearch.trim()) {
+      const q = convSearch.toLowerCase();
+      list = list.filter((m) => m.content?.toLowerCase().includes(q));
+    }
+    return list;
+  }, [messages, convSearch, advSearchType, advSearchFrom, advSearchTo]);
 
   return (
     <div className="flex h-full" style={{ background: 'var(--surface)' }}>
@@ -942,8 +1030,9 @@ export default function InboxPage() {
               const isFav = !!meta?.isPinned;
               const isArc = !!meta?.isArchived;
               const initial = (conv.contact?.firstName?.[0] || '?').toUpperCase();
+              const priority = (meta?.priority || 'NORMAL') as string;
               return (
-                <div key={conv.key} className="relative group">
+                <div key={conv.key} className="relative group" style={{ borderLeft: `3px solid ${priority !== 'NORMAL' ? priorityColor(priority) : 'transparent'}` }}>
                   <button onClick={() => setSelectedKey(conv.key)}
                     className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
                     style={{ background: isSelected ? 'var(--primary-light)' : 'transparent', borderBottom: '1px solid var(--border)' }}>
@@ -956,6 +1045,9 @@ export default function InboxPage() {
                         </div>
                       )}
                       {isFav && <Star size={10} className="absolute -top-1 -right-1 fill-yellow-400" style={{ color: '#F59E0B' }} />}
+                      {priority === 'URGENT' && (
+                        <span className="absolute -bottom-1 -right-1 text-[8px] font-bold px-1 rounded text-white" style={{ background: '#EF4444' }}>!</span>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
@@ -1075,12 +1167,15 @@ export default function InboxPage() {
                 </button>
                 {showHeaderMenu && (
                   <div
-                    className="absolute right-0 top-full mt-1 rounded-lg shadow-lg py-1 z-30 w-56"
+                    className="absolute right-0 top-full mt-1 rounded-lg shadow-lg py-1 z-30 w-60"
                     style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
                     onMouseLeave={() => setShowHeaderMenu(false)}
                   >
                     <button onClick={() => { setShowConvSearch(!showConvSearch); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       <Search size={14} /> Pesquisar nesta conversa
+                    </button>
+                    <button onClick={() => { setShowAdvSearch(!showAdvSearch); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
+                      <Search size={14} /> Pesquisa avançada (filtros)
                     </button>
                     <button onClick={() => { handleAISummary(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       <Sparkles size={14} style={{ color: 'var(--primary)' }} /> Resumir conversa (IA)
@@ -1098,6 +1193,25 @@ export default function InboxPage() {
                     <button onClick={() => { handleCsatRequest(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       <ThumbsUp size={14} style={{ color: '#F59E0B' }} /> Pedir avaliação CSAT
                     </button>
+                    <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
+                    <button onClick={() => { handleExport('txt'); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
+                      <FileText size={14} /> Exportar conversa (.txt)
+                    </button>
+                    <button onClick={() => { handleExport('json'); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
+                      <FileText size={14} /> Exportar conversa (.json)
+                    </button>
+                    <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
+                    <p className="px-3 py-1 text-[10px] uppercase font-semibold" style={{ color: 'var(--text-muted)' }}>Prioridade</p>
+                    {['LOW', 'NORMAL', 'HIGH', 'URGENT'].map((p) => (
+                      <button key={p} onClick={() => { handleSetPriority(p); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-slate-100 text-left">
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: priorityColor(p), display: 'inline-block' }} />
+                        {priorityLabel(p)}
+                      </button>
+                    ))}
+                    <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
+                    <button onClick={() => setSoundEnabled(!soundEnabled)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
+                      {soundEnabled ? '🔊' : '🔇'} Som: {soundEnabled ? 'ON' : 'OFF'}
+                    </button>
                   </div>
                 )}
               </div>
@@ -1113,6 +1227,33 @@ export default function InboxPage() {
                 {convSearch.trim() && (
                   <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{filteredMessages.length} resultado(s)</p>
                 )}
+              </div>
+            )}
+
+            {/* Pesquisa avançada (filtros) */}
+            {showAdvSearch && (
+              <div className="px-6 py-3 flex-shrink-0 space-y-2" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold">Pesquisa avançada</p>
+                  <button onClick={() => { setShowAdvSearch(false); setAdvSearchType(''); setAdvSearchFrom(''); setAdvSearchTo(''); }} className="text-xs" style={{ color: 'var(--text-muted)' }}>Fechar</button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <select value={advSearchType} onChange={(e) => setAdvSearchType(e.target.value)} className="input-base text-xs">
+                    <option value="">Qualquer tipo</option>
+                    <option value="TEXT">Texto</option>
+                    <option value="IMAGE">Imagem</option>
+                    <option value="VIDEO">Vídeo</option>
+                    <option value="AUDIO">Áudio</option>
+                    <option value="DOCUMENT">Documento</option>
+                    <option value="INTERACTIVE">Botão/Lista</option>
+                    <option value="SYSTEM">Sistema (chamadas)</option>
+                  </select>
+                  <input type="date" value={advSearchFrom} onChange={(e) => setAdvSearchFrom(e.target.value)} className="input-base text-xs" />
+                  <input type="date" value={advSearchTo} onChange={(e) => setAdvSearchTo(e.target.value)} className="input-base text-xs" />
+                </div>
+                <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                  Filtros aplicados na lista de mensagens abaixo. Combinar com pesquisa por texto na barra acima.
+                </p>
               </div>
             )}
 

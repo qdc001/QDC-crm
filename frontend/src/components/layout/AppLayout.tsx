@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   LayoutDashboard, GitBranch, Users, MessageSquare, CheckSquare,
   Zap, Bot, BarChart3, FileText, Plug, Settings, LogOut,
-  Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2
+  Bell, Search, ChevronDown, Menu, X, UserPlus, Radio, Loader2, Check, Phone
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store';
 import CopilotPanel from '../ai/CopilotPanel';
@@ -18,6 +18,7 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
   { path: '/leads', icon: Users, key: 'nav.leads' },
   { path: '/contacts', icon: UserPlus, key: 'nav.contacts' },
   { path: '/inbox', icon: MessageSquare, key: 'nav.inbox' },
+  { path: '/calls', icon: Phone, key: 'nav.calls' },
   { path: '/tasks', icon: CheckSquare, key: 'nav.tasks' },
   { path: '/automations', icon: Zap, key: 'nav.automations' },
   { path: '/broadcasts', icon: Radio, key: 'nav.broadcasts' },
@@ -28,13 +29,32 @@ const navConfig: { path: string; icon: any; key: string; exact?: boolean }[] = [
   { path: '/team', icon: Users, key: 'nav.team' },
 ];
 
+const STATUS_COLORS: Record<string, string> = {
+  ONLINE: '#10B981', AWAY: '#F59E0B', BUSY: '#EF4444', DND: '#7C3AED', OFFLINE: '#64748B',
+};
+const STATUS_LABELS: Record<string, string> = {
+  ONLINE: 'Online', AWAY: 'Ausente', BUSY: 'Ocupado', DND: 'Não incomodar', OFFLINE: 'Offline',
+};
+
 export default function AppLayout() {
-  const { user, workspace, logout } = useAuthStore();
+  const { user, workspace, logout, updateUser } = useAuthStore();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [t] = useT();
   const navItems = navConfig.map((n) => ({ ...n, label: t(n.key) }));
+
+  const changeStatus = async (status: string) => {
+    try {
+      const res = await api.patch('/users/me', { status });
+      updateUser({ status: res.data.status });
+      toast.success(`Estado: ${STATUS_LABELS[status] || status}`);
+      setShowStatusMenu(false);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    }
+  };
 
   // Pesquisa global (partilhada via store para destacar tambem no kanban)
   const { globalSearchQuery: query, setGlobalSearchQuery: setQuery } = useUIStore();
@@ -192,20 +212,42 @@ export default function AppLayout() {
           </NavLink>
 
           {/* User */}
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
-            <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white" style={{ background: 'var(--primary)' }}>
-              {user?.name?.[0]?.toUpperCase() || 'U'}
-            </div>
-            {sidebarOpen && (
-              <>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-white truncate">{user?.name}</p>
-                  <p className="text-xs truncate" style={{ color: 'var(--sidebar-text)' }}>{user?.role}</p>
+          <div className="relative">
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
+              <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="relative flex-shrink-0" title={`Estado: ${STATUS_LABELS[user?.status || 'OFFLINE']}`}>
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: 'var(--primary)' }}>
+                  {user?.name?.[0]?.toUpperCase() || 'U'}
                 </div>
-                <button onClick={handleLogout} className="text-gray-500 hover:text-red-400 transition-colors">
-                  <LogOut size={15} />
-                </button>
-              </>
+                <span
+                  className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
+                  style={{ background: STATUS_COLORS[user?.status || 'OFFLINE'], borderColor: 'var(--sidebar-bg)' }}
+                />
+              </button>
+              {sidebarOpen && (
+                <>
+                  <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="flex-1 min-w-0 text-left">
+                    <p className="text-xs font-medium text-white truncate">{user?.name}</p>
+                    <p className="text-xs truncate flex items-center gap-1" style={{ color: 'var(--sidebar-text)' }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_COLORS[user?.status || 'OFFLINE'], display: 'inline-block' }} />
+                      {STATUS_LABELS[user?.status || 'OFFLINE']}
+                    </p>
+                  </button>
+                  <button onClick={handleLogout} className="text-gray-500 hover:text-red-400 transition-colors">
+                    <LogOut size={15} />
+                  </button>
+                </>
+              )}
+            </div>
+            {showStatusMenu && (
+              <div className="absolute bottom-full mb-1 left-0 right-0 rounded-lg shadow-lg py-1 z-30" style={{ background: 'var(--sidebar-bg-2, #1F2937)', border: '1px solid rgba(255,255,255,0.1)' }} onMouseLeave={() => setShowStatusMenu(false)}>
+                {Object.keys(STATUS_LABELS).map((s) => (
+                  <button key={s} onClick={() => changeStatus(s)} className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-white/5 text-left text-white">
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLORS[s], display: 'inline-block' }} />
+                    {STATUS_LABELS[s]}
+                    {user?.status === s && <Check size={12} className="ml-auto" />}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>

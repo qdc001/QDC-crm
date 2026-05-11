@@ -24,7 +24,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -36,6 +36,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(primaryColor && { primaryColor }),
         ...(dateFormat && { dateFormat }),
         ...(fiscalYearStartMonth !== undefined && { fiscalYearStartMonth: Number(fiscalYearStartMonth) }),
+        ...(autoAssignEnabled !== undefined && { autoAssignEnabled: !!autoAssignEnabled }),
       },
     });
     await prisma.auditLog.create({
