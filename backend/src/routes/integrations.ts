@@ -315,9 +315,15 @@ router.get('/evolution/qr', async (req: AuthRequest, res: Response, next) => {
 
     let qr: any = null;
     try { qr = await evolutionFetch(creds, `/instance/connect/${creds.instanceName}`); }
-    catch { try { qr = await evolutionFetch(creds, `/instance/qrcode/${creds.instanceName}`); } catch {} }
+    catch (e: any) { console.error('Evolution /qr connect error:', e.message); }
+
+    // Fallback se v2 mudou path
+    if (!qr || (!qr.base64 && !qr.qrcode)) {
+      try { qr = await evolutionFetch(creds, `/instance/qrcode/${creds.instanceName}`); } catch {}
+    }
+
     const base64 = qr?.base64 || qr?.qrcode?.base64 || qr?.qr?.base64 || null;
-    const code = qr?.code || qr?.qrcode?.code || null;
+    const code = qr?.code || qr?.qrcode?.code || qr?.pairingCode || null;
     res.json({ base64, code, raw: qr });
   } catch (e) { next(e); }
 });

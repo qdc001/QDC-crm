@@ -289,26 +289,36 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
     } finally { setDisconnecting(false); }
   };
 
-  // Polling do estado a cada 3s enquanto QR está visível e ainda não ligou
+  // Polling do estado E do QR a cada 3s enquanto não ligar
   useEffect(() => {
     if (step !== 'qr') return;
+    let qrAttempts = 0;
     const tick = async () => {
       try {
         const res = await api.get('/integrations/evolution/status');
         const s = res.data.state;
         setState(s || 'unknown');
         if (s === 'open') {
-          // ligado!
           if (pollRef.current) clearInterval(pollRef.current);
           toast.success('WhatsApp ligado!');
           onChanged();
+          return;
+        }
+        // Se ainda não temos QR, tenta buscar
+        if (!qr && qrAttempts < 30) {
+          qrAttempts++;
+          try {
+            const qrRes = await api.get('/integrations/evolution/qr');
+            const b64 = qrRes.data.base64;
+            if (b64) setQr(b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`);
+          } catch {}
         }
       } catch {}
     };
-    tick(); // primeira chamada imediata
+    tick();
     pollRef.current = setInterval(tick, 3000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [step]);
+  }, [step, qr]);
 
   // Ao abrir em modo QR, se ainda não temos QR e não está ligado, pedir
   useEffect(() => {
