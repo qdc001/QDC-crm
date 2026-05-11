@@ -324,7 +324,11 @@ export default function InboxPage() {
   // Pesquisa local na conversa
   const [convSearch, setConvSearch] = useState('');
   const [showConvSearch, setShowConvSearch] = useState(false);
-  const [showContactPanel, setShowContactPanel] = useState(true);
+  const [showContactPanel, setShowContactPanel] = useState<boolean>(() => {
+    return localStorage.getItem('kommo:contactPanel') === 'true'; // por defeito retraído
+  });
+  useEffect(() => { localStorage.setItem('kommo:contactPanel', String(showContactPanel)); }, [showContactPanel]);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
 
   // Composer
   const [draft, setDraft] = useState('');
@@ -353,6 +357,9 @@ export default function InboxPage() {
   // Presence: { contactId: 'composing' | 'recording' | 'available' | ... }
   const [presenceMap, setPresenceMap] = useState<Record<string, string>>({});
   const presenceTimeoutsRef = useRef<Record<string, any>>({});
+
+  // Lightbox para visualizar imagens em grande
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   // Socket listeners para presence e chamadas
   useEffect(() => {
@@ -398,13 +405,49 @@ export default function InboxPage() {
       }
     };
 
+    const onMessage = (msg: Message) => {
+      const matchesSelected =
+        !!selected &&
+        ((selected.combined && msg.contactId === selected.contact?.id) ||
+         (!selected.combined && msg.contactId === selected.contact?.id && (msg.channel === selected.channel || msg.isInternal)));
+      if (matchesSelected) {
+        setMessages((prev) => prev.find((x) => x.id === msg.id) ? prev : [...prev, msg]);
+        // se estamos a ler e o toggle estiver ON, marcar como lida
+        if (msg.direction === 'INBOUND' && readReceipts) {
+          api.post('/messages/mark-conversation-read', {
+            contactId: selected!.contact?.id, leadId: selected!.leadId, sendReceipt: true,
+          }).catch(() => {});
+        }
+      }
+      // Sempre actualizar lista de conversas
+      setConversations((prev) => {
+        const key = msg.contactId ? (msg.contactId === (selected?.contact?.id || '') && selected?.combined ? msg.contactId : `${msg.contactId}:${msg.channel}`) : `lead:${msg.leadId}:${msg.channel}`;
+        const idx = prev.findIndex((c) => c.contact?.id === msg.contactId);
+        if (idx === -1) return prev;
+        const updated = [...prev];
+        const conv = updated[idx];
+        updated[idx] = {
+          ...conv,
+          lastMessage: msg,
+          total: conv.total + 1,
+          unread: msg.direction === 'INBOUND' && (selected?.contact?.id !== msg.contactId) ? (conv.unread || 0) + 1 : conv.unread,
+        };
+        // mover para o topo
+        const [item] = updated.splice(idx, 1);
+        updated.unshift(item);
+        return updated;
+      });
+    };
+
     socket.on('presence:update', onPresence);
     socket.on('call:incoming', onCall);
+    socket.on('message:new', onMessage);
     return () => {
       socket.off('presence:update', onPresence);
       socket.off('call:incoming', onCall);
+      socket.off('message:new', onMessage);
     };
-  }, [workspace?.id]);
+  }, [workspace?.id, selected?.key, readReceipts]);
 
   // Modais
   const [newMessageOpen, setNewMessageOpen] = useState(false);
@@ -1011,41 +1054,52 @@ export default function InboxPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-0.5 flex-shrink-0">
-                <button onClick={() => setShowConvSearch(!showConvSearch)} className="p-1.5 rounded-lg hover:bg-slate-100" title="Pesquisar nesta conversa">
-                  <Search size={15} style={{ color: showConvSearch ? 'var(--primary)' : 'var(--text-secondary)' }} />
-                </button>
-                <button onClick={handleAISummary} className="p-1.5 rounded-lg hover:bg-slate-100" title="Resumir conversa com IA">
-                  <Sparkles size={15} style={{ color: 'var(--primary)' }} />
-                </button>
-                {selected.contact?.whatsapp && (
-                  <a href={`https://wa.me/${cleanPhone(selected.contact.whatsapp)}`} target="_blank" rel="noreferrer" className="p-1.5 rounded-lg hover:bg-green-50" title="WhatsApp">
-                    <MessageCircle size={15} style={{ color: '#25D366' }} />
-                  </a>
-                )}
-                {selected.contact?.phone && (
-                  <a href={`tel:${cleanPhone(selected.contact.phone)}`} className="p-1.5 rounded-lg hover:bg-slate-100" title="Telefonar">
-                    <Phone size={15} style={{ color: 'var(--text-secondary)' }} />
-                  </a>
-                )}
-                <button onClick={handleCsatRequest} className="p-1.5 rounded-lg hover:bg-slate-100" title="Pedir avaliacao (CSAT)">
-                  <ThumbsUp size={15} style={{ color: '#F59E0B' }} />
-                </button>
+              <div className="flex items-center gap-0.5 flex-shrink-0 relative">
                 <button
                   onClick={() => setReadReceipts(!readReceipts)}
                   className="p-1.5 rounded-lg hover:bg-slate-100"
-                  title={readReceipts ? 'Confirmação de leitura ACTIVA (ao abrir conversa o remetente vê ticks azuis). Clica para desactivar.' : 'Confirmação de leitura DESACTIVADA (o remetente não vê ticks azuis). Clica para activar.'}
+                  title={readReceipts ? 'Confirmação de leitura ACTIVA' : 'Confirmação de leitura DESACTIVADA'}
                 >
                   {readReceipts
                     ? <Eye size={15} style={{ color: '#3B82F6' }} />
                     : <EyeOff size={15} style={{ color: 'var(--text-muted)' }} />}
                 </button>
                 <button onClick={handleCreateLeadFromConv} className="btn btn-primary text-xs py-1.5 px-2.5 ml-1" disabled={!defaultStage} title="Criar Lead a partir desta conversa">
-                  <GitBranch size={12} /> <span className="hidden lg:inline">Criar Lead</span>
+                  <GitBranch size={12} /> <span className="hidden xl:inline">Criar Lead</span>
                 </button>
                 <button onClick={() => setShowContactPanel(!showContactPanel)} className="p-1.5 rounded-lg hover:bg-slate-100 ml-1" title={showContactPanel ? 'Fechar painel do contacto' : 'Abrir painel do contacto'}>
                   {showContactPanel ? <PanelRightClose size={16} style={{ color: 'var(--text-secondary)' }} /> : <PanelRightOpen size={16} style={{ color: 'var(--text-secondary)' }} />}
                 </button>
+                <button onClick={() => setShowHeaderMenu(!showHeaderMenu)} className="p-1.5 rounded-lg hover:bg-slate-100 ml-0.5" title="Mais opções">
+                  <MoreVertical size={16} style={{ color: 'var(--text-secondary)' }} />
+                </button>
+                {showHeaderMenu && (
+                  <div
+                    className="absolute right-0 top-full mt-1 rounded-lg shadow-lg py-1 z-30 w-56"
+                    style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+                    onMouseLeave={() => setShowHeaderMenu(false)}
+                  >
+                    <button onClick={() => { setShowConvSearch(!showConvSearch); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
+                      <Search size={14} /> Pesquisar nesta conversa
+                    </button>
+                    <button onClick={() => { handleAISummary(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
+                      <Sparkles size={14} style={{ color: 'var(--primary)' }} /> Resumir conversa (IA)
+                    </button>
+                    {selected.contact?.whatsapp && (
+                      <a href={`https://wa.me/${cleanPhone(selected.contact.whatsapp)}`} target="_blank" rel="noreferrer" className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100" onClick={() => setShowHeaderMenu(false)}>
+                        <MessageCircle size={14} style={{ color: '#25D366' }} /> Abrir no WhatsApp
+                      </a>
+                    )}
+                    {selected.contact?.phone && (
+                      <a href={`tel:${cleanPhone(selected.contact.phone)}`} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100" onClick={() => setShowHeaderMenu(false)}>
+                        <Phone size={14} /> Telefonar
+                      </a>
+                    )}
+                    <button onClick={() => { handleCsatRequest(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
+                      <ThumbsUp size={14} style={{ color: '#F59E0B' }} /> Pedir avaliação CSAT
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1142,28 +1196,31 @@ export default function InboxPage() {
                             <>
                               {msg.mediaUrl && (
                                 <div className="mb-1">
-                                  {msg.mediaType?.startsWith('image/') ? (
-                                    <a href={msg.mediaUrl} target="_blank" rel="noreferrer">
-                                      <img src={msg.mediaUrl} alt={msg.content} className="rounded max-w-full" style={{ maxHeight: 240 }} />
-                                    </a>
-                                  ) : msg.mediaType?.startsWith('video/') ? (
-                                    <video src={msg.mediaUrl} controls className="rounded max-w-full" style={{ maxHeight: 240 }} />
-                                  ) : msg.mediaType?.startsWith('audio/') ? (
-                                    <audio src={msg.mediaUrl} controls />
+                                  {(msg.type === 'IMAGE' || msg.mediaType?.startsWith('image/')) ? (
+                                    <button onClick={() => setLightboxUrl(msg.mediaUrl!)} className="block">
+                                      <img src={msg.mediaUrl} alt={msg.content} className="rounded max-w-full cursor-pointer" style={{ maxHeight: 240 }} />
+                                    </button>
+                                  ) : (msg.type === 'VIDEO' || msg.mediaType?.startsWith('video/')) ? (
+                                    <video src={msg.mediaUrl} controls className="rounded max-w-full" style={{ maxHeight: 240, maxWidth: 320 }} />
+                                  ) : (msg.type === 'AUDIO' || msg.mediaType?.startsWith('audio/')) ? (
+                                    <audio src={msg.mediaUrl} controls style={{ maxWidth: 280 }} />
                                   ) : (
-                                    <a href={msg.mediaUrl} target="_blank" rel="noreferrer"
-                                      className="flex items-center gap-2 p-2 rounded hover:opacity-80"
-                                      style={{ background: out ? 'rgba(255,255,255,0.15)' : 'var(--surface-2)' }}>
-                                      <Paperclip size={14} />
-                                      <span className="text-xs underline">{msg.content}</span>
-                                    </a>
+                                    <div className="flex items-center gap-2 p-2 rounded" style={{ background: out ? 'rgba(255,255,255,0.15)' : 'var(--surface-2)' }}>
+                                      <FileText size={20} style={{ color: out ? 'white' : 'var(--text-secondary)' }} />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium truncate" style={{ color: out ? 'white' : 'var(--text-primary)' }}>{msg.content}</p>
+                                      </div>
+                                      <a href={msg.mediaUrl} download={msg.content} target="_blank" rel="noreferrer"
+                                        className="p-1.5 rounded hover:bg-white/20"
+                                        title="Baixar"
+                                        style={{ background: out ? 'rgba(255,255,255,0.2)' : 'var(--surface-3)' }}>
+                                        ⬇
+                                      </a>
+                                    </div>
                                   )}
                                 </div>
                               )}
-                              {(!msg.mediaUrl || msg.content !== msg.content) && (
-                                <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
-                              )}
-                              {msg.mediaUrl && msg.content && !msg.mediaType?.startsWith('image/') && (
+                              {msg.content && !(msg.type === 'IMAGE' || msg.mediaType?.startsWith('image/')) && msg.content !== '[Áudio]' && msg.content !== '[Imagem]' && msg.content !== '[Vídeo]' && (
                                 <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
                               )}
                             </>
@@ -1450,6 +1507,40 @@ export default function InboxPage() {
             loadConversations();
           }}
         />
+      )}
+
+      {/* Lightbox de imagem */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{ background: 'rgba(0,0,0,0.85)' }}
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setLightboxUrl(null); }}
+            className="absolute top-4 right-4 text-white p-2 rounded-full hover:bg-white/10"
+            title="Fechar"
+          >
+            <X size={24} />
+          </button>
+          <a
+            href={lightboxUrl}
+            download
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-4 right-16 text-white p-2 rounded-full hover:bg-white/10"
+            title="Baixar"
+          >
+            ⬇
+          </a>
+          <img
+            src={lightboxUrl}
+            alt=""
+            style={{ maxHeight: '90vh', maxWidth: '90vw', borderRadius: 8 }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
     </div>
   );

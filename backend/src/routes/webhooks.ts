@@ -3,9 +3,54 @@ import { PrismaClient } from '@prisma/client';
 import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+const uploadsDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+// Helper: devolve URL absoluto baseado no PUBLIC_API_URL ou request
+function absoluteUrl(req: Request, p: string): string {
+  const base = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
+  return `${base}${p.startsWith('/') ? p : '/' + p}`;
+}
+
+// Helper: baixa media da Evolution via base64 e guarda como ficheiro local
+async function fetchMediaFromEvolution(creds: any, baileysMessage: any, fallbackExt: string): Promise<string | null> {
+  if (!creds?.baseUrl || !creds?.apiKey || !creds?.instanceName) return null;
+  try {
+    const res = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/getBase64FromMediaMessage/${creds.instanceName}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+      body: JSON.stringify({ message: { key: baileysMessage.key, message: baileysMessage.message } }),
+    });
+    if (!res.ok) {
+      console.error('getBase64FromMediaMessage failed:', await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const base64 = data?.base64 || data?.media || data;
+    if (!base64 || typeof base64 !== 'string') return null;
+    const mimeType: string = data?.mimetype || data?.mimeType || '';
+    // Decidir extensão
+    let ext = fallbackExt;
+    if (mimeType.includes('/')) {
+      const t = mimeType.split('/')[1].split(';')[0];
+      ext = t.replace('mpeg', 'mp3').replace('quicktime', 'mov').replace('jpeg', 'jpg');
+    }
+    const fileName = `wa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const filePath = path.join(uploadsDir, fileName);
+    const buffer = Buffer.from(base64.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    await fs.promises.writeFile(filePath, buffer);
+    return `/uploads/${fileName}`;
+  } catch (e) {
+    console.error('fetchMediaFromEvolution error:', e);
+    return null;
+  }
+}
 
 router.get('/', (_req, res) => res.json({ message: 'webhooks endpoint' }));
 
@@ -80,18 +125,30 @@ router.post('/evolution', async (req: Request, res: Response) => {
         let mediaUrl: string | undefined;
         let interactiveId: string | null = null;
 
+        const creds: any = matched.credentials || {};
+
         if (msg.conversation) {
           content = msg.conversation;
         } else if (msg.extendedTextMessage?.text) {
           content = msg.extendedTextMessage.text;
         } else if (msg.imageMessage) {
-          msgType = 'IMAGE'; content = msg.imageMessage.caption || '[Imagem]'; mediaUrl = msg.imageMessage.url;
+          msgType = 'IMAGE'; content = msg.imageMessage.caption || '[Imagem]';
+          const local = await fetchMediaFromEvolution(creds, m, 'jpg');
+          mediaUrl = local ? absoluteUrl(req, local) : msg.imageMessage.url;
         } else if (msg.videoMessage) {
-          msgType = 'VIDEO'; content = msg.videoMessage.caption || '[Vídeo]'; mediaUrl = msg.videoMessage.url;
+          msgType = 'VIDEO'; content = msg.videoMessage.caption || '[Vídeo]';
+          const local = await fetchMediaFromEvolution(creds, m, 'mp4');
+          mediaUrl = local ? absoluteUrl(req, local) : msg.videoMessage.url;
         } else if (msg.audioMessage) {
-          msgType = 'AUDIO'; content = '[Áudio]'; mediaUrl = msg.audioMessage.url;
+          msgType = 'AUDIO'; content = '[Áudio]';
+          const local = await fetchMediaFromEvolution(creds, m, 'ogg');
+          mediaUrl = local ? absoluteUrl(req, local) : msg.audioMessage.url;
         } else if (msg.documentMessage) {
-          msgType = 'DOCUMENT'; content = msg.documentMessage.fileName || '[Documento]'; mediaUrl = msg.documentMessage.url;
+          msgType = 'DOCUMENT';
+          content = msg.documentMessage.fileName || '[Documento]';
+          const ext = (msg.documentMessage.fileName || '').split('.').pop() || 'bin';
+          const local = await fetchMediaFromEvolution(creds, m, ext);
+          mediaUrl = local ? absoluteUrl(req, local) : msg.documentMessage.url;
         } else if (msg.locationMessage) {
           msgType = 'LOCATION';
           content = `Localização: ${msg.locationMessage.degreesLatitude}, ${msg.locationMessage.degreesLongitude}`;
