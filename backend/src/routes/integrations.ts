@@ -201,58 +201,81 @@ router.post('/evolution/connect', async (req: AuthRequest, res: Response, next) 
     if (!creds.baseUrl || !creds.apiKey) throw new AppError('baseUrl e apiKey em falta', 400);
 
     const instanceName = creds.instanceName || `meta_${req.user!.workspaceId.substring(0, 8)}`;
-
-    // Tentar criar a instância (se já existir, ignora o erro 403/409)
     const webhookUrl = `${process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`}/api/webhooks/evolution`;
+
+    // 1) Verificar se já existe instância com este nome
+    let exists = false;
     try {
-      await evolutionFetch(creds, '/instance/create', {
-        method: 'POST',
-        body: JSON.stringify({
-          instanceName,
-          qrcode: true,
-          integration: 'WHATSAPP-BAILEYS',
-          webhook: webhookUrl,
-          webhookByEvents: false,
-          webhook_by_events: false,
-          events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'QRCODE_UPDATED'],
-        }),
-      });
-    } catch (e: any) {
-      // Se a instância já existe, não falhar, só seguir para connect
-      if (!String(e.message).toLowerCase().includes('already')) {
-        // tentar de qualquer forma o connect, alguns servidores devolvem erro diferente
+      const list = await evolutionFetch(creds, `/instance/fetchInstances?instanceName=${instanceName}`);
+      const arr = Array.isArray(list) ? list : (list?.instances || []);
+      exists = arr.some((x: any) => (x?.instance?.instanceName || x?.name || x?.instanceName) === instanceName);
+    } catch { /* silent */ }
+
+    // 2) Criar se não existir (formato Evolution v2)
+    if (!exists) {
+      try {
+        await evolutionFetch(creds, '/instance/create', {
+          method: 'POST',
+          body: JSON.stringify({
+            instanceName,
+            qrcode: true,
+            integration: 'WHATSAPP-BAILEYS',
+          }),
+        });
+      } catch (e: any) {
+        const msg = String(e.message).toLowerCase();
+        // Se já existe, não é problema; outros erros sim
+        if (!msg.includes('already') && !msg.includes('exists')) {
+          console.error('Evolution create error:', e.message);
+        }
       }
     }
 
-    // Buscar QR
-    let qr: any = null;
+    // 3) Configurar webhook (Evolution v2: /webhook/set/{instance} com body { webhook: {...} })
     try {
-      qr = await evolutionFetch(creds, `/instance/connect/${instanceName}`, { method: 'GET' });
+      await evolutionFetch(creds, `/webhook/set/${instanceName}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          webhook: {
+            enabled: true,
+            url: webhookUrl,
+            webhookByEvents: false,
+            webhookBase64: false,
+            events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+          },
+        }),
+      });
     } catch (e: any) {
-      // alguns servidores usam /instance/qrcode/{instance}
-      try { qr = await evolutionFetch(creds, `/instance/qrcode/${instanceName}`); } catch {}
+      // fallback formato legado
+      try {
+        await evolutionFetch(creds, `/webhook/set/${instanceName}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            url: webhookUrl, enabled: true,
+            events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+          }),
+        });
+      } catch { /* silent */ }
     }
 
-    // Persistir instanceName e webhook
+    // 4) Pedir QR
+    let qr: any = null;
+    try {
+      qr = await evolutionFetch(creds, `/instance/connect/${instanceName}`);
+    } catch (e: any) {
+      console.error('Evolution connect error:', e.message);
+      throw new AppError(`Erro a ligar a instância: ${e.message}`, 502);
+    }
+
+    // 5) Persistir instanceName + webhook
     await prisma.integration.update({
       where: { id: integration.id },
       data: { credentials: { ...creds, instanceName, webhookUrl }, isActive: true },
     });
 
-    // Configurar webhook explicitamente (nem todos os servidores aceitam no create)
-    try {
-      await evolutionFetch(creds, `/webhook/set/${instanceName}`, {
-        method: 'POST',
-        body: JSON.stringify({
-          url: webhookUrl, enabled: true, webhookByEvents: false, webhook_by_events: false,
-          events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
-        }),
-      });
-    } catch { /* silent */ }
-
-    // Extrair base64 do QR (formato varia)
-    const base64 = qr?.base64 || qr?.qrcode?.base64 || qr?.qr?.base64 || qr?.code || null;
-    const code = qr?.code || qr?.qrcode?.code || null;
+    // 6) Extrair base64 do QR (formato Evolution v2: { pairingCode, code, base64, count })
+    const base64 = qr?.base64 || qr?.qrcode?.base64 || qr?.qr?.base64 || null;
+    const code = qr?.code || qr?.qrcode?.code || qr?.pairingCode || null;
 
     res.json({ instanceName, base64, code, raw: qr });
   } catch (e) { next(e); }
@@ -271,7 +294,8 @@ router.get('/evolution/status', async (req: AuthRequest, res: Response, next) =>
     }
     try {
       const data = await evolutionFetch(creds, `/instance/connectionState/${creds.instanceName}`);
-      const state = data?.state || data?.instance?.state || data?.status || 'unknown';
+      // Evolution v2: { instance: { instanceName, state } }
+      const state = data?.instance?.state || data?.state || data?.status || 'unknown';
       res.json({ configured: true, instanceName: creds.instanceName, state, raw: data });
     } catch (e: any) {
       res.json({ configured: true, instanceName: creds.instanceName, state: 'error', error: e.message });
