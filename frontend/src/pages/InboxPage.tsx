@@ -4,7 +4,7 @@ import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
   Inbox, Building2, User as UserIcon, Star, Archive, Edit3, Trash2,
-  Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose,
+  Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -336,6 +336,19 @@ export default function InboxPage() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Gravador de audio
+  const [recording, setRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<any>(null);
+
+  // Read receipts toggle (persistido em localStorage)
+  const [readReceipts, setReadReceipts] = useState<boolean>(() => {
+    return localStorage.getItem('kommo:readReceipts') === 'true';
+  });
+  useEffect(() => { localStorage.setItem('kommo:readReceipts', String(readReceipts)); }, [readReceipts]);
+
   // Modais
   const [newMessageOpen, setNewMessageOpen] = useState(false);
   const [creatingLead, setCreatingLead] = useState(false);
@@ -454,6 +467,7 @@ export default function InboxPage() {
         if (selected.unread > 0) {
           api.post('/messages/mark-conversation-read', {
             contactId: selected.contact?.id, leadId: selected.leadId,
+            sendReceipt: readReceipts, // só envia ticks azuis ao remetente se toggle estiver ON
           }).then(() => {
             setConversations((prev) => prev.map((c) => c.key === selected.key ? { ...c, unread: 0 } : c));
           }).catch(() => {});
@@ -506,6 +520,64 @@ export default function InboxPage() {
         setConversations((prev) => prev.map((c) => c.key === selected.key ? { ...c, lastMessage: data, total: c.total + 1 } : c));
       }
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro a enviar'); } finally { setSending(false); }
+  };
+
+  // Gravação de áudio
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/ogg';
+      const mr = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = mr;
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('mp4') ? 'm4a' : 'ogg';
+        const file = new File([blob], `audio_${Date.now()}.${ext}`, { type: mimeType });
+        await uploadAudio(file);
+      };
+      mr.start();
+      setRecording(true);
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => setRecordingTime((t) => t + 1), 1000);
+    } catch (err: any) {
+      toast.error('Sem permissão para microfone. Activa nas definições do browser.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      audioChunksRef.current = []; // descartar
+      mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      mediaRecorderRef.current = null;
+      setRecording(false);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    }
+  };
+
+  const uploadAudio = async (file: File) => {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const { data } = await api.post('/files/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setAttachment({ url: data.url, name: data.name, mimeType: data.mimeType, size: data.size });
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro a carregar áudio');
+    } finally { setUploading(false); }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -774,7 +846,13 @@ export default function InboxPage() {
                           <ChannelBadge channel={conv.channel} />
                         )}
                         <span className="text-xs truncate" style={{ color: conv.unread > 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: conv.unread > 0 ? 500 : 400 }}>
-                          {conv.lastMessage.direction === 'OUTBOUND' && <span className="mr-1">Voce: </span>}
+                          {conv.lastMessage.direction === 'OUTBOUND' && (
+                            <span className="mr-1 font-medium" style={{ color: 'var(--primary)' }}>
+                              {conv.lastMessage.sentBy
+                                ? (conv.lastMessage.sentBy.id === user?.id ? 'Você' : conv.lastMessage.sentBy.name.split(' ')[0])
+                                : 'Sistema'}:
+                            </span>
+                          )}
                           {conv.lastMessage.content?.slice(0, 50)}
                         </span>
                         {conv.unread > 0 && (
@@ -864,6 +942,15 @@ export default function InboxPage() {
                 )}
                 <button onClick={handleCsatRequest} className="p-1.5 rounded-lg hover:bg-slate-100" title="Pedir avaliacao (CSAT)">
                   <ThumbsUp size={15} style={{ color: '#F59E0B' }} />
+                </button>
+                <button
+                  onClick={() => setReadReceipts(!readReceipts)}
+                  className="p-1.5 rounded-lg hover:bg-slate-100"
+                  title={readReceipts ? 'Confirmação de leitura ACTIVA (ao abrir conversa o remetente vê ticks azuis). Clica para desactivar.' : 'Confirmação de leitura DESACTIVADA (o remetente não vê ticks azuis). Clica para activar.'}
+                >
+                  {readReceipts
+                    ? <Eye size={15} style={{ color: '#3B82F6' }} />
+                    : <EyeOff size={15} style={{ color: 'var(--text-muted)' }} />}
                 </button>
                 <button onClick={handleCreateLeadFromConv} className="btn btn-primary text-xs py-1.5 px-2.5 ml-1" disabled={!defaultStage} title="Criar Lead a partir desta conversa">
                   <GitBranch size={12} /> <span className="hidden lg:inline">Criar Lead</span>
@@ -1098,27 +1185,48 @@ export default function InboxPage() {
               )}
 
               <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
-              <div className="flex items-end gap-2 p-3 rounded-xl"
-                style={{ border: `1px solid ${isInternalNote ? '#F59E0B' : 'var(--border)'}`, background: isInternalNote ? '#FEF3C7' : 'transparent' }}>
-                <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" title="Anexar ficheiro">
-                  {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} style={{ color: 'var(--text-muted)' }} />}
-                </button>
-                <textarea
-                  ref={draftRef}
-                  className="flex-1 text-sm resize-none outline-none min-h-[36px] max-h-32"
-                  style={{ color: 'var(--text-primary)', background: 'transparent' }}
-                  placeholder={isInternalNote ? 'Nota interna (so visivel para a equipa)...' : `Mensagem para ${fullName(selected.contact)}... (/atalho para snippets)`}
-                  value={draft}
-                  onChange={(e) => handleDraftChange(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                  rows={1}
-                  disabled={sending}
-                />
-                <button onClick={sendMessage} disabled={sending || (!draft.trim() && !attachment)} className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: isInternalNote ? '#F59E0B' : 'var(--primary)', opacity: ((!draft.trim() && !attachment) || sending) ? 0.5 : 1 }}>
-                  {sending ? <Loader2 size={16} className="animate-spin text-white" /> : <Send size={16} className="text-white" />}
-                </button>
-              </div>
+              {recording ? (
+                <div className="flex items-center gap-3 p-3 rounded-xl" style={{ border: '1px solid #EF4444', background: '#FEF2F2' }}>
+                  <div className="w-3 h-3 rounded-full animate-pulse" style={{ background: '#EF4444' }} />
+                  <span className="text-sm font-medium" style={{ color: '#EF4444' }}>
+                    A gravar... {Math.floor(recordingTime / 60).toString().padStart(2, '0')}:{(recordingTime % 60).toString().padStart(2, '0')}
+                  </span>
+                  <div className="flex-1" />
+                  <button onClick={cancelRecording} className="p-2 rounded-lg hover:bg-red-100" title="Cancelar">
+                    <X size={18} style={{ color: '#EF4444' }} />
+                  </button>
+                  <button onClick={stopRecording} className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#10B981' }} title="Parar e anexar">
+                    <Check size={18} className="text-white" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-end gap-2 p-3 rounded-xl"
+                  style={{ border: `1px solid ${isInternalNote ? '#F59E0B' : 'var(--border)'}`, background: isInternalNote ? '#FEF3C7' : 'transparent' }}>
+                  <button onClick={() => fileInputRef.current?.click()} disabled={uploading} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" title="Anexar ficheiro">
+                    {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} style={{ color: 'var(--text-muted)' }} />}
+                  </button>
+                  <textarea
+                    ref={draftRef}
+                    className="flex-1 text-sm resize-none outline-none min-h-[36px] max-h-32"
+                    style={{ color: 'var(--text-primary)', background: 'transparent' }}
+                    placeholder={isInternalNote ? 'Nota interna (so visivel para a equipa)...' : `Mensagem para ${fullName(selected.contact)}... (/atalho para snippets)`}
+                    value={draft}
+                    onChange={(e) => handleDraftChange(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                    rows={1}
+                    disabled={sending}
+                  />
+                  {!draft.trim() && !attachment && !isInternalNote && (
+                    <button onClick={startRecording} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0" title="Gravar mensagem de voz">
+                      <Mic size={18} style={{ color: 'var(--text-muted)' }} />
+                    </button>
+                  )}
+                  <button onClick={sendMessage} disabled={sending || (!draft.trim() && !attachment)} className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: isInternalNote ? '#F59E0B' : 'var(--primary)', opacity: ((!draft.trim() && !attachment) || sending) ? 0.5 : 1 }}>
+                    {sending ? <Loader2 size={16} className="animate-spin text-white" /> : <Send size={16} className="text-white" />}
+                  </button>
+                </div>
+              )}
             </div>
           </>
         )}

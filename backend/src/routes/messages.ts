@@ -246,6 +246,23 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       },
       include: messageInclude,
     });
+
+    // Ao responder a uma conversa, marcar inbound anteriores como lidas (sempre) +
+    // enviar read receipt ao remetente via Evolution (sempre que se responde)
+    if (shouldSend && contactId) {
+      const inboundUnread = await prisma.message.findMany({
+        where: { direction: 'INBOUND', readAt: null, contactId },
+        include: { contact: { select: { whatsapp: true, phone: true } } },
+      });
+      if (inboundUnread.length > 0) {
+        await prisma.message.updateMany({
+          where: { direction: 'INBOUND', readAt: null, contactId },
+          data: { readAt: new Date(), status: 'READ' },
+        });
+        evolutionMarkRead(req.user!.workspaceId, inboundUnread).catch(() => {});
+      }
+    }
+
     const io = req.app.get('io');
     if (message.leadId) io.to(`lead:${message.leadId}`).emit('message:new', message);
     io.to(`workspace:${req.user!.workspaceId}`).emit('message:new', message);
@@ -287,14 +304,62 @@ router.patch('/:id/read', async (req: AuthRequest, res: Response, next) => {
   } catch (e) { next(e); }
 });
 
+// Helper: envia mark-as-read para a Evolution para que o ticker azul apareça no telefone do remetente
+async function evolutionMarkRead(workspaceId: string, messages: Array<{ externalId: string | null; contact?: { whatsapp?: string | null; phone?: string | null } | null }>) {
+  if (!messages.length) return;
+  const evo = await prisma.integration.findFirst({
+    where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+  });
+  if (!evo) return;
+  const creds: any = evo.credentials || {};
+  if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return;
+
+  // Agrupar por contacto
+  const groups = new Map<string, string[]>();
+  for (const m of messages) {
+    if (!m.externalId) continue;
+    const phone = m.contact?.whatsapp || m.contact?.phone;
+    if (!phone) continue;
+    const remote = `${phone.replace(/\D/g, '')}@s.whatsapp.net`;
+    if (!groups.has(remote)) groups.set(remote, []);
+    groups.get(remote)!.push(m.externalId);
+  }
+
+  for (const [remoteJid, ids] of groups) {
+    try {
+      await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/markMessageAsRead/${creds.instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+        body: JSON.stringify({
+          readMessages: ids.map((id) => ({ id, remoteJid, fromMe: false })),
+        }),
+      });
+    } catch (e) {
+      console.error('Evolution markMessageAsRead error:', e);
+    }
+  }
+}
+
 // POST /api/messages/mark-conversation-read
+// body: { contactId, leadId, sendReceipt: boolean } - se sendReceipt=true, envia ticks azuis ao remetente via Evolution
 router.post('/mark-conversation-read', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { contactId, leadId } = req.body;
+    const { contactId, leadId, sendReceipt } = req.body;
     const where: any = { direction: 'INBOUND', readAt: null };
     if (contactId) where.contactId = contactId;
     if (leadId) where.leadId = leadId;
+
+    // Buscar mensagens antes de marcar (para ter externalIds)
+    const inbound = sendReceipt ? await prisma.message.findMany({
+      where, include: { contact: { select: { whatsapp: true, phone: true } } },
+    }) : [];
+
     const result = await prisma.message.updateMany({ where, data: { readAt: new Date(), status: 'READ' } });
+
+    if (sendReceipt && inbound.length > 0) {
+      evolutionMarkRead(req.user!.workspaceId, inbound).catch(() => {});
+    }
+
     res.json({ updated: result.count });
   } catch (e) { next(e); }
 });
