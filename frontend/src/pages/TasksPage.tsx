@@ -150,6 +150,100 @@ function LeadSearchPicker({ leads, value, onChange }: { leads: Lead[]; value: st
   );
 }
 
+// =============== ColoredSelect: dropdown com chip colorido por opção ===============
+function ColoredSelect({ value, options, onChange, placeholder }: {
+  value: string;
+  options: TaskOption[];
+  onChange: (val: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const current = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="input-base w-full flex items-center justify-between gap-2 text-left"
+        style={{ minHeight: 38 }}
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          {current?.color && (
+            <span
+              className="w-3 h-3 rounded-full flex-shrink-0"
+              style={{ background: current.color, boxShadow: '0 0 0 1px rgba(0,0,0,0.1)' }}
+            />
+          )}
+          <span className="truncate" style={{ color: current ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+            {current?.label || placeholder || '— Selecionar —'}
+          </span>
+        </span>
+        <span style={{ color: 'var(--text-muted)' }}>▾</span>
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-50 mt-1 w-full rounded-lg shadow-lg max-h-60 overflow-y-auto"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+        >
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => { onChange(o.value); setOpen(false); }}
+              className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              {o.color ? (
+                <span
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ background: o.color, boxShadow: '0 0 0 1px rgba(0,0,0,0.1)' }}
+                />
+              ) : (
+                <span className="w-3 h-3 flex-shrink-0" />
+              )}
+              <span className="text-sm flex-1">{o.label}</span>
+              {value === o.value && <Check size={14} style={{ color: 'var(--primary)' }} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Badge colorida que reaproveita a cor de uma TaskOption — usar em listas/kanban
+export function TaskOptionBadge({ option, size = 'sm' }: { option?: TaskOption; size?: 'sm' | 'md' }) {
+  if (!option) return null;
+  const padding = size === 'md' ? 'px-2 py-1' : 'px-1.5 py-0.5';
+  const fontSize = size === 'md' ? '12px' : '11px';
+  const color = option.color || '#94A3B8';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded font-medium ${padding}`}
+      style={{
+        background: `${color}22`,
+        color,
+        fontSize,
+        lineHeight: 1.2,
+      }}
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+      {option.label}
+    </span>
+  );
+}
+
 // =============== Modal: Nova/Editar Tarefa (com subtarefas) ===============
 function TaskFormModal({
   task, users, leads, tags,
@@ -165,6 +259,7 @@ function TaskFormModal({
   initialDate?: string;
 }) {
   const isEdit = !!task?.id;
+  const navigate = useNavigate();
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const { workspace } = useAuthStore();
@@ -291,32 +386,37 @@ function TaskFormModal({
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Descricao</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="input-base" rows={2} />
           </div>
+          <div className="flex items-center justify-between -mb-1">
+            <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              Edita/personaliza as opções (cores, etiquetas, ordem) em Definições
+            </span>
+            <button
+              type="button"
+              onClick={() => { onClose(); navigate('/settings?tab=workspace#task-options'); }}
+              className="text-[11px] underline"
+              style={{ color: 'var(--primary)' }}
+            >
+              Abrir Definições
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Tipo</label>
-              <select value={type} onChange={(e) => setType(e.target.value as any)} className="input-base">
-                {wsTaskTypes.map((o: TaskOption) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+              <ColoredSelect value={type} options={wsTaskTypes} onChange={(v) => setType(v as any)} />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Prioridade</label>
-              <select value={priority} onChange={(e) => setPriority(e.target.value as any)} className="input-base">
-                {wsTaskPriorities.map((o: TaskOption) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+              <ColoredSelect value={priority} options={wsTaskPriorities} onChange={(v) => setPriority(v as any)} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Estado</label>
-              <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="input-base">
-                {wsTaskStatuses.map((o: TaskOption) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+              <ColoredSelect value={status} options={wsTaskStatuses} onChange={(v) => setStatus(v as any)} />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Recorrencia</label>
-              <select value={recurrence || ''} onChange={(e) => setRecurrence(e.target.value as any)} className="input-base">
-                {wsTaskRecurrences.map((o: TaskOption) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Recorrência</label>
+              <ColoredSelect value={recurrence || ''} options={wsTaskRecurrences} onChange={(v) => setRecurrence(v as any)} />
             </div>
           </div>
           <div>
