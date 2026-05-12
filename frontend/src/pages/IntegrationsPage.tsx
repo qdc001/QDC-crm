@@ -523,9 +523,11 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
                     Importar conversas existentes
                   </p>
                   <p className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>
-                    Traz para a Caixa de Entrada <strong>todas</strong> as conversas, contactos e mensagens disponíveis no WhatsApp deste número (sem limite).
+                    Traz para a Caixa de Entrada <strong>todas</strong> as conversas, contactos e mensagens disponíveis no WhatsApp (sem limite).
                     Pode demorar vários minutos consoante o histórico.
-                    {lastSyncAt && <> Última: {new Date(lastSyncAt).toLocaleString('pt-PT')}.</>}
+                    <br />
+                    <strong>Atenção:</strong> a Evolution só consegue importar o que está na cache do dispositivo. Mensagens muito antigas só ficam disponíveis depois de abrires a conversa no telefone e fazeres scroll para cima — depois clica "Sincronizar novamente" e o histórico extra entra.
+                    {lastSyncAt && <><br />Última sync: {new Date(lastSyncAt).toLocaleString('pt-PT')}.</>}
                   </p>
 
                   {syncing && syncProgress ? (

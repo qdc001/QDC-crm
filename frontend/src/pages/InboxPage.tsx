@@ -762,9 +762,12 @@ export default function InboxPage() {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  useEffect(() => {
-    if (!selectedKey && visibleConversations.length > 0) setSelectedKey(visibleConversations[0].key);
-  }, [visibleConversations, selectedKey]);
+  // Nota: não seleccionamos nenhuma conversa automaticamente.
+  // O utilizador deve clicar na conversa que quer abrir. Isto evita abrir
+  // por engano um chat indesejado ao entrar na Caixa de Entrada.
+  // Excepções (já tratadas noutro useEffect):
+  //   - Veio com ?contactId=... ou ?leadId=... no URL → abre essa
+  //   - Clicou no botão "Ir ao chat" de outro sítio (Contactos/Tarefas/Lead)
 
   // Snippet expansion: quando draft termina com /xxx <espaco>, expande
   // Envio de presence (composing/recording/paused) com debounce

@@ -1165,7 +1165,16 @@ export default function ContactsPage() {
                   {columns.createdAt !== false && <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>{new Date(c.createdAt).toLocaleDateString('pt-PT')}</td>}
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1">
-                      {c.whatsapp && <a href={`https://wa.me/${cleanPhone(c.whatsapp)}`} target="_blank" rel="noreferrer" className="p-1.5 rounded hover:bg-green-50" title="WhatsApp" onClick={(e) => e.stopPropagation()}><MessageCircle size={14} style={{ color: '#25D366' }} /></a>}
+                      {(c.whatsapp || c.phone) && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); navigate(`/inbox?contactId=${c.id}`); }}
+                          className="p-1.5 rounded hover:bg-green-50"
+                          title="Abrir chat WhatsApp deste contacto"
+                        >
+                          <MessageCircle size={14} style={{ color: '#25D366' }} />
+                        </button>
+                      )}
                       {c.phone && <a href={`tel:${cleanPhone(c.phone)}`} className="p-1.5 rounded hover:bg-slate-100" title="Telefonar" onClick={(e) => e.stopPropagation()}><PhoneCall size={14} style={{ color: 'var(--text-secondary)' }} /></a>}
                       {c.email && <a href={`mailto:${c.email}`} className="p-1.5 rounded hover:bg-slate-100" title="Email" onClick={(e) => e.stopPropagation()}><Mail size={14} style={{ color: 'var(--text-secondary)' }} /></a>}
                       <button onClick={(e) => { e.stopPropagation(); setNewTaskFor(c); }} className="p-1.5 rounded hover:bg-blue-50" title="Adicionar tarefa"><CheckSquare size={14} style={{ color: 'var(--primary)' }} /></button>
