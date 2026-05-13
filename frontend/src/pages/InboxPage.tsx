@@ -882,6 +882,7 @@ export default function InboxPage() {
         type: attachment ? (attachment.mimeType.startsWith('image/') ? 'IMAGE' : attachment.mimeType.startsWith('video/') ? 'VIDEO' : attachment.mimeType.startsWith('audio/') ? 'AUDIO' : 'DOCUMENT') : 'TEXT',
         mediaUrl: attachment ? `${apiBase}${attachment.url}` : undefined,
         mediaType: attachment?.mimeType,
+        fileName: attachment?.name,
       });
       setMessages((p) => p.find((x) => x.id === data.id) ? p : [...p, data]);
       setDraft(''); setReplyTo(null); setAttachment(null);

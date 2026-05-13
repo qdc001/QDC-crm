@@ -38,7 +38,7 @@ async function sendMetaOut(workspaceId: string, channel: 'INSTAGRAM' | 'FACEBOOK
 }
 
 // Helper: envia WhatsApp via canal disponível (Evolution preferido, depois Cloud API)
-async function sendWhatsAppOut(workspaceId: string, phone: string, content: string, type: string, mediaUrl?: string): Promise<{ ok: boolean; externalId?: string; via?: string; error?: string }> {
+async function sendWhatsAppOut(workspaceId: string, phone: string, content: string, type: string, mediaUrl?: string, fileName?: string): Promise<{ ok: boolean; externalId?: string; via?: string; error?: string }> {
   // 1. Tentar Evolution
   const evo = await prisma.integration.findFirst({
     where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
@@ -59,8 +59,18 @@ async function sendWhatsAppOut(workspaceId: string, phone: string, content: stri
           path = `/message/sendMedia/${creds.instanceName}`;
           body.mediatype = type === 'IMAGE' ? 'image' : type === 'VIDEO' ? 'video' : 'document';
           body.media = mediaUrl;
-          body.caption = content || '';
-          body.fileName = (mediaUrl || '').split('/').pop()?.replace(/^wa_\d+_\w+\./, 'arquivo.') || 'file';
+          body.caption = content && content !== 'Anexo' ? content : '';
+          // Nome do ficheiro (preserva o original quando passado pelo frontend)
+          if (fileName && fileName.trim()) {
+            body.fileName = fileName.trim();
+          } else if (content && content !== 'Anexo' && !content.startsWith('[')) {
+            body.fileName = content;
+          } else {
+            // Remover prefixos do storage (multer ou wa_<timestamp>) do nome do ficheiro derivado do URL
+            body.fileName = (mediaUrl || '').split('/').pop()
+              ?.replace(/^\d+-[a-z0-9]+-/, '')
+              ?.replace(/^wa_\d+_\w+\./, 'arquivo.') || 'arquivo';
+          }
         } else {
           path = `/message/sendText/${creds.instanceName}`;
           body.text = content;
@@ -243,7 +253,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 // POST /api/messages
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { content, channel, contactId, leadId, type, direction, mediaUrl, mediaType, replyToId, isInternal } = req.body;
+    const { content, channel, contactId, leadId, type, direction, mediaUrl, mediaType, replyToId, isInternal, fileName } = req.body;
     if (!content) throw new AppError('Conteudo obrigatorio', 400);
     if (!channel) throw new AppError('Canal obrigatorio', 400);
 
@@ -263,7 +273,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
         if (!phone) {
           sendError = 'Contacto sem número de WhatsApp';
         } else {
-          const result = await sendWhatsAppOut(req.user!.workspaceId, phone, content, type || 'TEXT', mediaUrl);
+          const result = await sendWhatsAppOut(req.user!.workspaceId, phone, content, type || 'TEXT', mediaUrl, fileName);
           if (result.ok) { externalId = result.externalId; status = 'SENT'; }
           else { sendError = result.error; status = 'FAILED'; }
         }

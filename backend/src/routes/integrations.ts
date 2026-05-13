@@ -7,6 +7,7 @@ import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
 import { analysePhone, nameFromPushOrPhone } from '../lib/phoneFormat';
+import { fetchMediaFromEvolution, publicMediaUrl } from '../lib/evolutionMedia';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -616,6 +617,8 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
 
                 let content = '';
                 let msgType: any = 'TEXT';
+                let mediaUrlLocal: string | null = null;
+                let mediaTypeStr: string | null = null;
 
                 if (unwrapped.conversation || msg.conversation) {
                   content = unwrapped.conversation || msg.conversation;
@@ -623,20 +626,29 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
                   content = unwrapped.extendedTextMessage?.text || msg.extendedTextMessage?.text;
                 } else if (unwrapped.imageMessage || msg.imageMessage) {
                   msgType = 'IMAGE';
-                  content = (unwrapped.imageMessage || msg.imageMessage)?.caption || '[Imagem]';
+                  const im = unwrapped.imageMessage || msg.imageMessage;
+                  content = im?.caption || '[Imagem]';
+                  // Baixar imagem para mostrar como preview inline
+                  const local = await fetchMediaFromEvolution(creds, m, 'jpg');
+                  if (local) { mediaUrlLocal = publicMediaUrl(local); mediaTypeStr = im?.mimetype || 'image/jpeg'; }
                 } else if (unwrapped.videoMessage || msg.videoMessage) {
                   msgType = 'VIDEO';
-                  content = (unwrapped.videoMessage || msg.videoMessage)?.caption || '[Vídeo]';
+                  const vm = unwrapped.videoMessage || msg.videoMessage;
+                  content = vm?.caption || '[Vídeo]';
+                  // Baixar vídeo é caro — para já só imagens. Mantemos o tipo.
                 } else if (unwrapped.audioMessage || msg.audioMessage) {
                   msgType = 'AUDIO'; content = '[Áudio]';
                 } else if (unwrapped.documentMessage || msg.documentMessage) {
                   msgType = 'DOCUMENT';
-                  content = (unwrapped.documentMessage || msg.documentMessage)?.fileName || '[Documento]';
+                  const dm = unwrapped.documentMessage || msg.documentMessage;
+                  content = dm?.fileName || '[Documento]';
                 } else if (msg.locationMessage) {
                   msgType = 'LOCATION';
                   content = `Localização: ${msg.locationMessage.degreesLatitude}, ${msg.locationMessage.degreesLongitude}`;
                 } else if (msg.stickerMessage) {
                   msgType = 'IMAGE'; content = '[Sticker]';
+                  const local = await fetchMediaFromEvolution(creds, m, 'webp');
+                  if (local) { mediaUrlLocal = publicMediaUrl(local); mediaTypeStr = 'image/webp'; }
                 } else if (msg.protocolMessage) {
                   stats.messagesSkipped++; continue; // mensagens de sistema/protocol (apagadas, etc)
                 } else {
@@ -657,6 +669,8 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
                     leadId: lead?.id,
                     contactId: contact.id,
                     createdAt,
+                    mediaUrl: mediaUrlLocal || undefined,
+                    mediaType: mediaTypeStr || undefined,
                   },
                 });
                 stats.messagesImported++;
