@@ -360,11 +360,11 @@ function TaskFormModal({
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Titulo *</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Título *</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-base" required autoFocus placeholder="Ex: Ligar ao cliente" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Descricao</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Descrição</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="input-base" rows={2} />
           </div>
           <div className="flex items-center justify-between -mb-1">
@@ -395,7 +395,7 @@ function TaskFormModal({
             <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="input-base" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Responsavel</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Responsável</label>
             <select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)} className="input-base">
               <option value="">— Eu —</option>
               {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
