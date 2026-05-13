@@ -733,6 +733,102 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
 // POST /api/integrations/evolution/fix-names
 // Arruma contactos que ficaram com o nome do dono do WhatsApp (ex: "Arquimedes Bruno") ou outros placeholders.
 // Para cada contacto cujo nome bate com o ownerName, substitui pelo número formatado (ou pushName se tivermos).
+// Helper exportado para uso no webhook (contacts.upsert / contacts.update).
+// Actualiza o firstName de um contacto no CRM com base no objecto que a Evolution
+// devolve em findContacts ou nos eventos de webhook.
+// Ordem de preferência do nome:
+//   1) `name`         (agenda do telefone — preferido, é o que o utilizador acabou de gravar)
+//   2) `verifiedName` (conta business verificada)
+//   3) `pushName` / `notify`
+// `force=true` substitui mesmo nomes que parecem não-placeholder (usado no botão manual).
+// `force=false` (default) só substitui quando o nome actual parece placeholder
+// (número cru, "Contacto WhatsApp" ou igual ao ownerName).
+export async function applyEvoContactToCrm(
+  prismaClient: any,
+  workspaceId: string,
+  evoContact: any,
+  ownerName: string | null,
+  opts: { force?: boolean } = {},
+): Promise<{ updated: boolean; reason?: string }> {
+  const jid: string = evoContact?.remoteJid || evoContact?.id || '';
+  if (!jid || jid.endsWith('@g.us') || jid.endsWith('@broadcast')) return { updated: false, reason: 'jid invalido' };
+  const phone = String(jid).split('@')[0].replace(/\D/g, '');
+  if (!phone) return { updated: false, reason: 'sem phone' };
+
+  const filterOwner = (s: any) => {
+    const t = String(s || '').trim();
+    if (!t) return '';
+    if (ownerName && t.toLowerCase() === String(ownerName).toLowerCase()) return '';
+    return t;
+  };
+  const bookName = filterOwner(evoContact?.name);
+  const verified = filterOwner(evoContact?.verifiedName);
+  const push = filterOwner(evoContact?.pushName) || filterOwner(evoContact?.notify);
+  const best = bookName || verified || push;
+  if (!best) return { updated: false, reason: 'sem nome novo' };
+
+  const { rawDigits } = analysePhone(phone);
+  const contact = await prismaClient.contact.findFirst({ where: { whatsapp: rawDigits, workspaceId } });
+  if (!contact) return { updated: false, reason: 'contacto inexistente' };
+
+  const current = (contact.firstName || '').trim();
+  const looksLikePlaceholder =
+    !current ||
+    /^\+?\d[\d\s]*$/.test(current) ||
+    current === 'Contacto WhatsApp' ||
+    (!!ownerName && current.toLowerCase() === String(ownerName).toLowerCase());
+
+  if (!looksLikePlaceholder && !opts.force) return { updated: false, reason: 'ja tem nome editado' };
+  if (current === best) return { updated: false, reason: 'sem mudanca' };
+
+  await prismaClient.contact.update({ where: { id: contact.id }, data: { firstName: best } });
+  return { updated: true };
+}
+
+// POST /api/integrations/evolution/sync-contact-names
+// Re-puxa a lista de contactos da Evolution (livro de contactos do dispositivo)
+// e actualiza os nomes no CRM. Útil depois de guardar contactos novos no telefone.
+router.post('/evolution/sync-contact-names', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { force } = req.body || {};
+    const workspaceId = req.user!.workspaceId;
+    const integration = await prisma.integration.findFirst({
+      where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
+    });
+    if (!integration) throw new AppError('Evolution não configurada', 400);
+    const creds: any = integration.credentials || {};
+    if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
+      throw new AppError('Configuração Evolution incompleta', 400);
+    }
+    const ownerName: string | null = (creds.ownerName || '').trim() || null;
+
+    let evoList: any[] = [];
+    try {
+      const r = await evolutionFetch(creds, `/chat/findContacts/${creds.instanceName}`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      evoList = Array.isArray(r) ? r : (r?.contacts || r?.data || []);
+    } catch (e: any) {
+      throw new AppError(`Não foi possível ler contactos: ${e.message}`, 502);
+    }
+
+    let updated = 0;
+    let skipped = 0;
+    for (const ec of evoList) {
+      try {
+        const r = await applyEvoContactToCrm(prisma, workspaceId, ec, ownerName, { force: !!force });
+        if (r.updated) updated++;
+        else skipped++;
+      } catch {
+        skipped++;
+      }
+    }
+
+    res.json({ total: evoList.length, updated, skipped, force: !!force });
+  } catch (e) { next(e); }
+});
+
 router.post('/evolution/fix-names', async (req: AuthRequest, res: Response, next) => {
   try {
     const workspaceId = req.user!.workspaceId;

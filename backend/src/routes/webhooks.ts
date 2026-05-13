@@ -4,6 +4,7 @@ import { runChatbotForMessage } from '../lib/chatbotEngine';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewMessage } from '../lib/notify';
 import { analysePhone, nameFromPushOrPhone } from '../lib/phoneFormat';
+import { applyEvoContactToCrm } from './integrations';
 import fs from 'fs';
 import path from 'path';
 
@@ -701,6 +702,34 @@ router.post('/evolution', async (req: Request, res: Response) => {
     if (event === 'qrcode.updated' || event === 'QRCODE_UPDATED') {
       if (io) io.to(`workspace:${workspaceId}`).emit('evolution:qr', data);
       return res.json({ ok: true });
+    }
+
+    // Contactos guardados/actualizados no telefone (livro de contactos)
+    if (event === 'contacts.upsert' || event === 'CONTACTS_UPSERT' ||
+        event === 'contacts.update' || event === 'CONTACTS_UPDATE') {
+      try {
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.contacts) ? data.contacts
+          : [data];
+        const ownerName: string | null = (matched.credentials as any)?.ownerName || null;
+        let updated = 0;
+        for (const c of list) {
+          try {
+            const r = await applyEvoContactToCrm(prisma, workspaceId, c, ownerName);
+            if (r.updated) {
+              updated++;
+              const jid = String(c?.remoteJid || c?.id || '');
+              const phone = jid.split('@')[0].replace(/\D/g, '');
+              if (io) io.to(`workspace:${workspaceId}`).emit('contact:name-updated', { phone });
+            }
+          } catch { /* silent */ }
+        }
+        return res.json({ ok: true, updated });
+      } catch (e) {
+        console.error('contacts.upsert parse error:', e);
+        return res.json({ ok: true });
+      }
     }
 
     // Presence (a escrever / a gravar / online / offline)

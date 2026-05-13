@@ -283,6 +283,7 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
   const [syncProgress, setSyncProgress] = useState<{ current: number; total: number; contactsCreated: number; messagesImported: number } | null>(null);
   const [syncPromptShown, setSyncPromptShown] = useState(false);
   const [fixingNames, setFixingNames] = useState(false);
+  const [syncingContactNames, setSyncingContactNames] = useState(false);
   const lastSyncAt: string | null = (existing?.credentials as any)?.lastSyncAt || null;
 
   const saveConfig = async () => {
@@ -442,6 +443,21 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
     }
   };
 
+  // Sincronizar nomes a partir do livro de contactos do telefone (Evolution findContacts)
+  const syncContactNames = async (force = false) => {
+    if (syncingContactNames) return;
+    setSyncingContactNames(true);
+    try {
+      const { data } = await api.post('/integrations/evolution/sync-contact-names', { force });
+      toast.success(`${data.updated} nomes actualizados (${data.skipped} sem mudança)`);
+      onChanged();
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || e.response?.data?.message || 'Erro ao sincronizar nomes');
+    } finally {
+      setSyncingContactNames(false);
+    }
+  };
+
   // Prompt automático: assim que liga (state=open) e ainda nunca sincronizou
   useEffect(() => {
     if (state === 'open' && !lastSyncAt && !syncPromptShown && !syncing) {
@@ -560,6 +576,16 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
                         style={{ background: '#25D366', color: 'white' }}
                       >
                         <Download size={12} /> {lastSyncAt ? 'Sincronizar novamente' : 'Importar agora'}
+                      </button>
+                      <button
+                        onClick={() => syncContactNames(false)}
+                        disabled={syncingContactNames}
+                        className="btn text-xs py-1.5 w-full"
+                        style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+                        title="Vai à agenda do telefone via WhatsApp e actualiza nomes dos contactos que ainda têm placeholder no CRM"
+                      >
+                        {syncingContactNames ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        Sincronizar nomes da agenda
                       </button>
                       <button
                         onClick={fixNames}
