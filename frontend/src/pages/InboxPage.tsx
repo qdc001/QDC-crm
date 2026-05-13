@@ -461,6 +461,9 @@ export default function InboxPage() {
 
   // Mini modal nova tarefa
   const [newTaskFor, setNewTaskFor] = useState<{ leadId?: string | null; contactId?: string | null; contactName: string } | null>(null);
+  // Tarefa pendente/em curso já existente para o contacto/lead da conversa seleccionada
+  const [existingTask, setExistingTask] = useState<any | null>(null);
+  const [viewingTask, setViewingTask] = useState<any | null>(null);
 
   // Pesquisa avançada
   const [showAdvSearch, setShowAdvSearch] = useState(false);
@@ -729,6 +732,21 @@ export default function InboxPage() {
   // Sincroniza refs (usados em socket callbacks)
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { readReceiptsRef.current = readReceipts; }, [readReceipts]);
+
+  // Procurar tarefa pendente/em curso para a conversa seleccionada
+  useEffect(() => {
+    if (!selected?.contact?.id && !selected?.leadId) { setExistingTask(null); return; }
+    const params = new URLSearchParams();
+    if (selected.leadId) params.set('leadId', selected.leadId);
+    else if (selected.contact?.id) params.set('contactId', selected.contact.id);
+    api.get(`/tasks?${params.toString()}`)
+      .then(({ data }) => {
+        const list = Array.isArray(data) ? data : [];
+        const open = list.find((t: any) => t.status === 'PENDING' || t.status === 'IN_PROGRESS') || null;
+        setExistingTask(open);
+      })
+      .catch(() => setExistingTask(null));
+  }, [selected?.contact?.id, selected?.leadId]);
 
   useEffect(() => {
     if (!selected) { setMessages([]); return; }
@@ -1718,17 +1736,28 @@ export default function InboxPage() {
               </button>
             </div>
 
-            <button
-              onClick={() => setNewTaskFor({
-                leadId: selected.leadId,
-                contactId: selected.contact?.id || null,
-                contactName: fullName(selected.contact),
-              })}
-              className="btn btn-primary py-1.5 text-xs w-full"
-              disabled={!selected.leadId && !selected.contact?.id}
-            >
-              <CheckSquare size={12} /> Nova tarefa
-            </button>
+            {existingTask ? (
+              <button
+                onClick={() => setViewingTask(existingTask)}
+                className="btn py-1.5 text-xs w-full"
+                style={{ background: '#10B981', color: 'white' }}
+                title={`${existingTask.title} · ${existingTask.dueAt ? new Date(existingTask.dueAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' }) : 'sem prazo'}`}
+              >
+                <CheckSquare size={12} /> Ver tarefa
+              </button>
+            ) : (
+              <button
+                onClick={() => setNewTaskFor({
+                  leadId: selected.leadId,
+                  contactId: selected.contact?.id || null,
+                  contactName: fullName(selected.contact),
+                })}
+                className="btn btn-primary py-1.5 text-xs w-full"
+                disabled={!selected.leadId && !selected.contact?.id}
+              >
+                <CheckSquare size={12} /> Nova tarefa
+              </button>
+            )}
 
             {/* Atribuir responsavel */}
             <div className="space-y-1">
@@ -1835,7 +1864,22 @@ export default function InboxPage() {
           contactId={newTaskFor.contactId || null}
           contactName={newTaskFor.contactName}
           onClose={() => setNewTaskFor(null)}
-          onCreated={() => { setNewTaskFor(null); toast.success('Tarefa criada'); }}
+          onCreated={(t) => {
+            setNewTaskFor(null);
+            if (t) setExistingTask(t);
+            toast.success('Tarefa criada');
+          }}
+        />
+      )}
+
+      {/* Modal Ver Tarefa (compacto, edicao rapida) */}
+      {viewingTask && (
+        <ViewTaskModal
+          task={viewingTask}
+          onClose={() => setViewingTask(null)}
+          onUpdated={(t) => { setViewingTask(t); setExistingTask(t); }}
+          onCompleted={() => { setViewingTask(null); setExistingTask(null); toast.success('Tarefa concluída'); }}
+          onDeleted={() => { setViewingTask(null); setExistingTask(null); toast.success('Tarefa eliminada'); }}
         />
       )}
 
@@ -1876,13 +1920,166 @@ export default function InboxPage() {
   );
 }
 
+// ── Mini modal Ver Tarefa (edição rápida da tarefa pendente do contacto/lead) ───
+function ViewTaskModal({ task, onClose, onUpdated, onCompleted, onDeleted }: {
+  task: any;
+  onClose: () => void;
+  onUpdated: (t: any) => void;
+  onCompleted: () => void;
+  onDeleted: () => void;
+}) {
+  const { types: taskTypes, priorities: taskPriorities, lookupType, lookupPriority, lookupStatus } = useTaskOptions();
+  const [title, setTitle] = useState<string>(task.title || '');
+  const [type, setType] = useState<string>(task.type || (taskTypes[0]?.value || 'OTHER'));
+  const [priority, setPriority] = useState<string>(task.priority || (taskPriorities[0]?.value || 'MEDIUM'));
+  const [dueAt, setDueAt] = useState<string>(task.dueAt ? new Date(task.dueAt).toISOString().slice(0, 16) : '');
+  const [description, setDescription] = useState<string>(task.description || '');
+  const [saving, setSaving] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+
+  const statusOpt = lookupStatus(task.status);
+  const typeOpt = lookupType(task.type);
+  const prioOpt = lookupPriority(task.priority);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.patch(`/tasks/${task.id}`, {
+        title, type, priority, description,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
+      });
+      onUpdated(data);
+      setEditMode(false);
+      toast.success('Tarefa actualizada');
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    } finally { setSaving(false); }
+  };
+
+  const handleComplete = async () => {
+    setCompleting(true);
+    try {
+      await api.patch(`/tasks/${task.id}`, { status: 'COMPLETED' });
+      onCompleted();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    } finally { setCompleting(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('Eliminar esta tarefa?')) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/tasks/${task.id}`);
+      onDeleted();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    } finally { setDeleting(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+      <div className="card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-base">Tarefa</h3>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {!editMode ? (
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Título</p>
+              <p className="text-sm font-semibold mt-0.5" style={{ color: 'var(--text-primary)' }}>{task.title}</p>
+            </div>
+            {task.description && (
+              <div>
+                <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Descrição</p>
+                <p className="text-sm mt-0.5 whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>{task.description}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <p className="font-medium" style={{ color: 'var(--text-muted)' }}>Tipo</p>
+                <span className="inline-block mt-0.5 px-2 py-0.5 rounded font-medium" style={{ background: (typeOpt.color || '#94A3B8') + '22', color: typeOpt.color || 'var(--text-primary)' }}>{typeOpt.label}</span>
+              </div>
+              <div>
+                <p className="font-medium" style={{ color: 'var(--text-muted)' }}>Prioridade</p>
+                <span className="inline-block mt-0.5 px-2 py-0.5 rounded font-medium" style={{ background: (prioOpt.color || '#94A3B8') + '22', color: prioOpt.color || 'var(--text-primary)' }}>{prioOpt.label}</span>
+              </div>
+              <div>
+                <p className="font-medium" style={{ color: 'var(--text-muted)' }}>Estado</p>
+                <span className="inline-block mt-0.5 px-2 py-0.5 rounded font-medium" style={{ background: (statusOpt.color || '#94A3B8') + '22', color: statusOpt.color || 'var(--text-primary)' }}>{statusOpt.label}</span>
+              </div>
+              <div>
+                <p className="font-medium" style={{ color: 'var(--text-muted)' }}>Prazo</p>
+                <p className="mt-0.5" style={{ color: 'var(--text-primary)' }}>{task.dueAt ? new Date(task.dueAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' }) : 'Sem prazo'}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button onClick={handleComplete} disabled={completing || task.status === 'COMPLETED'} className="btn py-2 text-xs" style={{ background: '#10B981', color: 'white' }}>
+                {completing ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                Marcar concluída
+              </button>
+              <button onClick={() => setEditMode(true)} className="btn py-2 text-xs" style={{ background: 'var(--primary)', color: 'white' }}>
+                <Edit3 size={12} /> Editar
+              </button>
+            </div>
+            <button onClick={handleDelete} disabled={deleting} className="btn py-2 text-xs w-full" style={{ background: '#FEF2F2', color: '#EF4444' }}>
+              {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+              Eliminar
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium mb-1">Título</label>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-base text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Descrição</label>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="input-base text-sm" rows={3} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium mb-1">Tipo</label>
+                <select value={type} onChange={(e) => setType(e.target.value)} className="input-base text-sm" style={{ borderLeft: `4px solid ${lookupType(type).color || '#94A3B8'}` }}>
+                  {taskTypes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Prioridade</label>
+                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="input-base text-sm" style={{ borderLeft: `4px solid ${lookupPriority(priority).color || '#94A3B8'}` }}>
+                  {taskPriorities.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Prazo</label>
+              <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="input-base text-sm" />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setEditMode(false)} className="btn py-2 text-xs flex-1" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
+              <button onClick={handleSave} disabled={saving} className="btn btn-primary py-2 text-xs flex-1">
+                {saving ? <Loader2 size={12} className="animate-spin" /> : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Mini modal Nova Tarefa (tratamento de tarefa única) ───
 function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated }: {
   leadId: string | null;
   contactId: string | null;
   contactName: string;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (task?: any) => void;
 }) {
   const { types: taskTypes, priorities: taskPriorities, lookupType, lookupPriority } = useTaskOptions();
   const defaultType = taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP';
@@ -1901,14 +2098,14 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
     if (!leadId && !contactId) { toast.error('Conversa sem lead/contacto associado'); return; }
     setSaving(true);
     try {
-      await api.post('/tasks', {
+      const { data } = await api.post('/tasks', {
         title, type, priority,
         leadId: leadId || undefined,
         contactId: contactId || undefined,
         dueAt: dueAt ? new Date(dueAt).toISOString() : null,
         force,
       });
-      onCreated();
+      onCreated(data);
     } catch (e: any) {
       if (e.response?.status === 409) {
         setExisting(e.response.data.existingTask);
