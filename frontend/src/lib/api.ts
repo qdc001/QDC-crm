@@ -138,6 +138,27 @@ export const DEFAULT_TASK_TITLES: TaskOption[] = [
   { value: 'Reunião', label: 'Reunião', color: '#3B82F6' },
 ];
 
+// Labels customizáveis dos campos do modal de tarefa.
+// Cada workspace pode renomear (ex: "Título" → "Categoria").
+export interface TaskFieldLabels {
+  title?: string;
+  description?: string;
+  type?: string;
+  priority?: string;
+  dueAt?: string;
+  assignee?: string;
+  contact?: string;
+}
+export const DEFAULT_TASK_FIELD_LABELS: Required<TaskFieldLabels> = {
+  title: 'Título',
+  description: 'Descrição',
+  type: 'Tipo',
+  priority: 'Prioridade',
+  dueAt: 'Data e hora limite',
+  assignee: 'Responsável',
+  contact: 'Contacto associado',
+};
+
 export interface Workspace {
   id: string;
   name: string;
@@ -154,6 +175,7 @@ export interface Workspace {
   taskStatuses?: TaskOption[];
   taskRecurrences?: TaskOption[];
   taskTitles?: TaskOption[];
+  taskFieldLabels?: TaskFieldLabels;
 }
 
 export interface Pipeline {

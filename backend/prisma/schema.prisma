@@ -85,6 +85,9 @@ model Workspace {
   taskRecurrences  Json @default("[]")
   // Títulos pré-definidos para tarefa (ex: Slide, Sinopse, Projecto, Monografia)
   taskTitles       Json @default("[]")
+  // Labels customizadas dos campos do modal de tarefa.
+  // Formato: { title: string, description: string, type: string, priority: string, dueAt: string, assignee: string, contact: string }
+  taskFieldLabels  Json @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

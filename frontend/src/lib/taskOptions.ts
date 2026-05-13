@@ -12,6 +12,7 @@ import {
   DEFAULT_TASK_STATUSES,
   DEFAULT_TASK_RECURRENCES,
   DEFAULT_TASK_TITLES,
+  DEFAULT_TASK_FIELD_LABELS,
 } from './api';
 
 const placeholder = (value: string): TaskOption => ({ value, label: value, color: '#94A3B8' });
@@ -46,5 +47,17 @@ export function useTaskOptions() {
   const lookupTitle = (v: string | null | undefined): TaskOption =>
     titles.find((o) => o.value === v) || placeholder(v || '');
 
-  return { types, priorities, statuses, recurrences, titles, lookupType, lookupPriority, lookupStatus, lookupRecurrence, lookupTitle };
+  // Labels dos campos — workspace pode renomear "Título" para "Categoria", etc.
+  const wsLabels = (workspace?.taskFieldLabels as any) || {};
+  const labels = {
+    title: wsLabels.title || DEFAULT_TASK_FIELD_LABELS.title,
+    description: wsLabels.description || DEFAULT_TASK_FIELD_LABELS.description,
+    type: wsLabels.type || DEFAULT_TASK_FIELD_LABELS.type,
+    priority: wsLabels.priority || DEFAULT_TASK_FIELD_LABELS.priority,
+    dueAt: wsLabels.dueAt || DEFAULT_TASK_FIELD_LABELS.dueAt,
+    assignee: wsLabels.assignee || DEFAULT_TASK_FIELD_LABELS.assignee,
+    contact: wsLabels.contact || DEFAULT_TASK_FIELD_LABELS.contact,
+  };
+
+  return { types, priorities, statuses, recurrences, titles, labels, lookupType, lookupPriority, lookupStatus, lookupRecurrence, lookupTitle };
 }

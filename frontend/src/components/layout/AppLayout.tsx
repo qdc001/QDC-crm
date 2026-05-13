@@ -65,9 +65,15 @@ export default function AppLayout() {
     const onDown = (data: any) => setEvoDown({ minutes: data.minutesDown || 0, message: data.message || 'WhatsApp desligado' });
     const onState = (data: any) => { if (data.state === 'open' || data.recovered) setEvoDown(null); };
     // Quando OWNER/ADMIN actualiza as Definições do workspace, todos os membros
-    // ligados recebem o evento e o store local é actualizado — assim Tipos/Prioridades/Títulos
-    // ficam imediatamente sincronizados em todas as sessões abertas.
-    const onWsUpdate = (ws: any) => { if (ws) updateWorkspace(ws); };
+    // ligados recebem o evento. Fazemos refetch completo (em vez de só aplicar o
+    // payload do evento) para garantir que campos novos do schema também entram.
+    const onWsUpdate = async (ws: any) => {
+      if (ws) updateWorkspace(ws);
+      try {
+        const { data: fresh } = await api.get('/workspaces/me');
+        if (fresh) updateWorkspace(fresh);
+      } catch {}
+    };
     socket.on('evolution:disconnected', onDown);
     socket.on('evolution:state', onState);
     socket.on('workspace:updated', onWsUpdate);

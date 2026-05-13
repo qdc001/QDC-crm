@@ -243,6 +243,16 @@ function TaskFormModalV2({
   const wsTaskStatuses = (workspace?.taskStatuses && (workspace.taskStatuses as any).length > 0) ? (workspace.taskStatuses as any) : DEFAULT_TASK_STATUSES;
   const wsTaskRecurrences = (workspace?.taskRecurrences && (workspace.taskRecurrences as any).length > 0) ? (workspace.taskRecurrences as any) : DEFAULT_TASK_RECURRENCES;
   const wsTaskTitles = ((workspace as any)?.taskTitles && ((workspace as any).taskTitles as any).length > 0) ? ((workspace as any).taskTitles as any) : DEFAULT_TASK_TITLES;
+  const wsLabels = ((workspace as any)?.taskFieldLabels || {}) as any;
+  const L = {
+    title: wsLabels.title || 'Título',
+    description: wsLabels.description || 'Descrição',
+    type: wsLabels.type || 'Tipo',
+    priority: wsLabels.priority || 'Prioridade',
+    dueAt: wsLabels.dueAt || 'Data e hora limite',
+    assignee: wsLabels.assignee || 'Responsável',
+    contact: wsLabels.contact || 'Contacto associado',
+  };
   const [title, setTitle] = useState(task?.title || wsTaskTitles[0]?.value || '');
   const [description, setDescription] = useState(task?.description || '');
 
@@ -361,11 +371,11 @@ function TaskFormModalV2({
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Título *</label>
-            <ColoredSelect value={title} options={wsTaskTitles} onChange={(v) => setTitle(v)} placeholder="Escolhe um título" />
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>{L.title} *</label>
+            <ColoredSelect value={title} options={wsTaskTitles} onChange={(v) => setTitle(v)} placeholder={`Escolhe ${L.title.toLowerCase()}`} />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Descrição</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>{L.description}</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="input-base" rows={2} />
           </div>
           <div className="flex items-center justify-between -mb-1">
@@ -383,20 +393,20 @@ function TaskFormModalV2({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Tipo</label>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>{L.type}</label>
               <ColoredSelect value={type} options={wsTaskTypes} onChange={(v) => setType(v as any)} />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Prioridade</label>
+              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>{L.priority}</label>
               <ColoredSelect value={priority} options={wsTaskPriorities} onChange={(v) => setPriority(v as any)} />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Data e hora limite</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>{L.dueAt}</label>
             <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="input-base" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Responsável</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>{L.assignee}</label>
             <select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)} className="input-base">
               <option value="">— Eu —</option>
               {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -404,7 +414,7 @@ function TaskFormModalV2({
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Contacto associado</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>{L.contact}</label>
             {contactObj ? (
               <div className="flex items-center gap-2 p-2 rounded" style={{ background: 'var(--surface-2)' }}>
                 <UserIcon size={14} style={{ color: 'var(--primary)' }} />

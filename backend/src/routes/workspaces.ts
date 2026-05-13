@@ -24,7 +24,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -42,6 +42,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(taskStatuses !== undefined && { taskStatuses }),
         ...(taskRecurrences !== undefined && { taskRecurrences }),
         ...(taskTitles !== undefined && { taskTitles }),
+        ...(taskFieldLabels !== undefined && { taskFieldLabels }),
       },
     });
     await prisma.auditLog.create({

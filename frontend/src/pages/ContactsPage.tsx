@@ -1269,7 +1269,7 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const { types: taskTypes, priorities: taskPriorities, titles: taskTitles, lookupType, lookupPriority, lookupTitle } = useTaskOptions();
+  const { types: taskTypes, priorities: taskPriorities, titles: taskTitles, labels: L, lookupType, lookupPriority, lookupTitle } = useTaskOptions();
   const defaultType = taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP';
   const defaultPriority = taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM';
   const defaultTitle = taskTitles[0]?.value || 'Seguimento';
@@ -1331,7 +1331,7 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
         ) : (
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-medium mb-1">Título</label>
+              <label className="block text-xs font-medium mb-1">{L.title}</label>
               <select
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -1342,7 +1342,7 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Descrição</label>
+              <label className="block text-xs font-medium mb-1">{L.description}</label>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="input-base text-sm" rows={2} placeholder="Detalhes adicionais (opcional)" />
             </div>
             <div className="grid grid-cols-2 gap-2">

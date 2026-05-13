@@ -2402,7 +2402,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
   onClose: () => void;
   onCreated: (task?: any) => void;
 }) {
-  const { types: taskTypes, priorities: taskPriorities, titles: taskTitles, lookupType, lookupPriority, lookupTitle } = useTaskOptions();
+  const { types: taskTypes, priorities: taskPriorities, titles: taskTitles, labels: L, lookupType, lookupPriority, lookupTitle } = useTaskOptions();
   const defaultType = taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP';
   const defaultPriority = taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM';
   const defaultTitle = taskTitles[0]?.value || 'Seguimento';
@@ -2470,7 +2470,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
         ) : (
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-medium mb-1">Título</label>
+              <label className="block text-xs font-medium mb-1">{L.title}</label>
               <select
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -2481,12 +2481,12 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Descrição</label>
+              <label className="block text-xs font-medium mb-1">{L.description}</label>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="input-base text-sm" rows={2} placeholder="Detalhes adicionais (opcional)" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs font-medium mb-1">Tipo</label>
+                <label className="block text-xs font-medium mb-1">{L.type}</label>
                 <select
                   value={type}
                   onChange={(e) => setType(e.target.value)}
@@ -2497,7 +2497,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1">Prioridade</label>
+                <label className="block text-xs font-medium mb-1">{L.priority}</label>
                 <select
                   value={priority}
                   onChange={(e) => setPriority(e.target.value)}
@@ -2509,7 +2509,7 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Prazo</label>
+              <label className="block text-xs font-medium mb-1">{L.dueAt}</label>
               <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="input-base text-sm" style={{ colorScheme: 'dark' }} />
             </div>
             <div className="flex gap-2 mt-4">

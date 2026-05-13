@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import api, {
   WorkspaceFull, AuditLog, TaskOption,
-  DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES, DEFAULT_TASK_TITLES,
+  DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES, DEFAULT_TASK_TITLES, DEFAULT_TASK_FIELD_LABELS, TaskFieldLabels,
 } from '../lib/api';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
@@ -71,6 +71,7 @@ export default function SettingsPage() {
   const [wsTaskStatuses, setWsTaskStatuses] = useState<TaskOption[]>([]);
   const [wsTaskRecurrences, setWsTaskRecurrences] = useState<TaskOption[]>([]);
   const [wsTaskTitles, setWsTaskTitles] = useState<TaskOption[]>([]);
+  const [wsTaskFieldLabels, setWsTaskFieldLabels] = useState<TaskFieldLabels>({});
   const [savingWs, setSavingWs] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -127,6 +128,7 @@ export default function SettingsPage() {
       setWsTaskStatuses(ts);
       setWsTaskRecurrences(tr);
       setWsTaskTitles(ttt);
+      setWsTaskFieldLabels((data.taskFieldLabels && typeof data.taskFieldLabels === 'object') ? data.taskFieldLabels : {});
       // aplicar cor primaria persistida no servidor
       if (data.primaryColor) applyPrimaryColor(data.primaryColor);
     }).catch(() => {});
@@ -298,6 +300,7 @@ export default function SettingsPage() {
         taskStatuses: wsTaskStatuses,
         taskRecurrences: wsTaskRecurrences,
         taskTitles: wsTaskTitles,
+        taskFieldLabels: wsTaskFieldLabels,
       });
       updateWorkspace({
         name: data.name, logo: data.logo, timezone: data.timezone, currency: data.currency,
@@ -307,6 +310,7 @@ export default function SettingsPage() {
         taskStatuses: data.taskStatuses,
         taskRecurrences: data.taskRecurrences,
         taskTitles: data.taskTitles,
+        taskFieldLabels: data.taskFieldLabels,
       } as any);
       applyPrimaryColor(data.primaryColor);
       setDateFormatPref(data.dateFormat);
@@ -749,6 +753,29 @@ export default function SettingsPage() {
               defaults={DEFAULT_TASK_PRIORITIES}
               onChange={setWsTaskPriorities}
             />
+
+            {/* Renomear labels dos campos do modal de tarefa */}
+            <div className="border-t pt-4 mt-4" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-sm font-semibold mb-1">Nomes dos campos (renomear)</p>
+              <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                Personaliza como os campos aparecem no modal de tarefa. Deixa vazio para usar o nome padrão.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {(['title', 'description', 'type', 'priority', 'dueAt', 'assignee', 'contact'] as const).map((k) => (
+                  <div key={k}>
+                    <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+                      {DEFAULT_TASK_FIELD_LABELS[k]} <span style={{ color: 'var(--text-muted)' }}>(default)</span>
+                    </label>
+                    <input
+                      value={wsTaskFieldLabels[k] || ''}
+                      onChange={(e) => setWsTaskFieldLabels({ ...wsTaskFieldLabels, [k]: e.target.value })}
+                      placeholder={DEFAULT_TASK_FIELD_LABELS[k]}
+                      className="input-base text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="flex gap-2 pt-2">
