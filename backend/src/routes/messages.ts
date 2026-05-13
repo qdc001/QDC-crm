@@ -132,10 +132,13 @@ const messageInclude = {
   replyTo: { select: { id: true, content: true, direction: true, sentBy: { select: { name: true } } } },
 };
 
-// GET /api/messages/conversations - lista de conversas
+// GET /api/messages/conversations - lista de conversas (paginada)
+// query: page, limit (default 100), channel, search, unreadOnly, combineByContact
 router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { channel, search, unreadOnly, combineByContact } = req.query;
+    const { channel, search, unreadOnly, combineByContact, page = 1, limit = 100 } = req.query;
+    const pageNum = Math.max(1, Number(page) || 1);
+    const lim = Math.min(Math.max(1, Number(limit) || 100), 500);
     const messageWhere: any = {
       OR: [
         { contact: { workspaceId: req.user!.workspaceId } },
@@ -225,7 +228,19 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
       });
     }
 
-    res.json(conversations);
+    // Ordenar por mensagem mais recente desc (mais usadas em cima)
+    conversations.sort((a: any, b: any) => {
+      const ta = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
+      const tb = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
+      return tb - ta;
+    });
+
+    const total = conversations.length;
+    const start = (pageNum - 1) * lim;
+    const paginated = conversations.slice(start, start + lim);
+
+    // Devolve objecto com metadados para o frontend poder mostrar "Pag 1/5" etc.
+    res.json({ conversations: paginated, total, page: pageNum, limit: lim, totalPages: Math.ceil(total / lim) });
   } catch (e) { next(e); }
 });
 

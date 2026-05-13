@@ -5,6 +5,7 @@ import {
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
   Inbox, Building2, User as UserIcon, Star, Archive, Edit3, Trash2,
   Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, Calendar,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import api, {
   Message, Conversation, Lead, Pipeline, Contact, MessageTemplate as MessageTemplateType,
@@ -379,6 +380,10 @@ export default function InboxPage() {
   const { user, workspace } = useAuthStore();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [convPage, setConvPage] = useState(1);
+  const [convTotal, setConvTotal] = useState(0);
+  const [convTotalPages, setConvTotalPages] = useState(1);
+  const CONV_PAGE_SIZE = 100;
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -643,14 +648,31 @@ export default function InboxPage() {
     if (search.trim()) params.set('search', search.trim());
     if (unreadOnly) params.set('unreadOnly', 'true');
     if (combineByContact) params.set('combineByContact', 'true');
+    params.set('page', String(convPage));
+    params.set('limit', String(CONV_PAGE_SIZE));
     setLoadingConvs(true);
     api.get(`/messages/conversations?${params.toString()}`)
-      .then(({ data }) => setConversations(Array.isArray(data) ? data : []))
+      .then(({ data }) => {
+        // Backend agora devolve { conversations, total, page, totalPages }
+        // Mantém compatibilidade com versões antigas que devolviam array directo
+        if (Array.isArray(data)) {
+          setConversations(data);
+          setConvTotal(data.length);
+          setConvTotalPages(1);
+        } else {
+          setConversations(data.conversations || []);
+          setConvTotal(data.total || 0);
+          setConvTotalPages(data.totalPages || 1);
+        }
+      })
       .catch(() => toast.error('Erro a carregar conversas'))
       .finally(() => setLoadingConvs(false));
   };
 
-  useEffect(() => { loadConversations(); /* eslint-disable-next-line */ }, [channelFilter, search, unreadOnly, combineByContact]);
+  useEffect(() => { loadConversations(); /* eslint-disable-next-line */ }, [channelFilter, search, unreadOnly, combineByContact, convPage]);
+
+  // Sempre que muda um filtro, voltar à página 1
+  useEffect(() => { setConvPage(1); }, [channelFilter, search, unreadOnly, combineByContact]);
 
   // Abrir conversa específica via URL (?contactId=X ou ?leadId=Y vindos de Tasks/Pipeline)
   useEffect(() => {
@@ -1303,6 +1325,36 @@ export default function InboxPage() {
             })
           )}
         </div>
+
+        {/* Paginação das conversas */}
+        {convTotal > CONV_PAGE_SIZE && (
+          <div className="flex items-center justify-between px-3 py-2 text-xs flex-shrink-0" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              {((convPage - 1) * CONV_PAGE_SIZE) + 1}-{Math.min(convPage * CONV_PAGE_SIZE, convTotal)} de <strong>{convTotal}</strong>
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setConvPage((p) => Math.max(1, p - 1))}
+                disabled={convPage <= 1 || loadingConvs}
+                className="p-1 rounded hover:bg-slate-100"
+                style={{ color: 'var(--text-primary)', opacity: convPage <= 1 ? 0.4 : 1 }}
+                title="Página anterior"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span style={{ color: 'var(--text-secondary)' }}>{convPage}/{convTotalPages}</span>
+              <button
+                onClick={() => setConvPage((p) => Math.min(convTotalPages, p + 1))}
+                disabled={convPage >= convTotalPages || loadingConvs}
+                className="p-1 rounded hover:bg-slate-100"
+                style={{ color: 'var(--text-primary)', opacity: convPage >= convTotalPages ? 0.4 : 1 }}
+                title="Página seguinte"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Chat */}
