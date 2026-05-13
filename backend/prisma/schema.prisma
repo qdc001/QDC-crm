@@ -281,6 +281,12 @@ model Message {
   replyTo     Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies     Message[] @relation("MessageReplies")
 
+  // Indices essenciais para acelerar GET /messages (lista por contacto/lead)
+  // e GET /messages/conversations (top recentes do workspace).
+  @@index([contactId, createdAt])
+  @@index([leadId, createdAt])
+  @@index([createdAt])
+  @@index([externalId])
   @@map("messages")
 }
 

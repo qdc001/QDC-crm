@@ -317,17 +317,37 @@ router.post('/bulk-import', async (req: AuthRequest, res: Response, next) => {
         const respRaw = norm(t.responsibleUser || t.responsible || t.Responsável || t.responsavel || t.assignedTo);
         const assignedToId = (respRaw && usersByName.get(respRaw.toLowerCase())) || fallbackUserId;
 
-        // Match de contacto por nome ou telefone
+        // Match de contacto (prioridade): 1) telefone exacto > 2) nome exacto > 3) nome parcial
         let contactId: string | null = null;
         const contactRaw = norm(t.contact || t.Contacto || t.contactName);
         const phoneRaw = norm(t.contactPhone || t.phone || t.Telefone).replace(/\D/g, '');
-        if (phoneRaw) {
+
+        // 1) Telefone (mantém o nome do CRM mesmo se diferente do nome importado)
+        if (phoneRaw && phoneRaw.length >= 7) {
           const c = await prisma.contact.findFirst({ where: { workspaceId, OR: [{ whatsapp: phoneRaw }, { phone: { contains: phoneRaw } }] } });
           if (c) contactId = c.id;
         }
+
+        // 2) Nome exacto (case-insensitive) em firstName, lastName ou firstName+lastName
         if (!contactId && contactRaw) {
-          const c = await prisma.contact.findFirst({ where: { workspaceId, firstName: { equals: contactRaw, mode: 'insensitive' } } });
-          if (c) contactId = c.id;
+          const all = await prisma.contact.findMany({
+            where: { workspaceId },
+            select: { id: true, firstName: true, lastName: true },
+          });
+          const target = contactRaw.toLowerCase();
+          let match = all.find((c) => {
+            const full = `${c.firstName || ''} ${c.lastName || ''}`.trim().toLowerCase();
+            return full === target || (c.firstName || '').toLowerCase() === target;
+          });
+          // 3) Match parcial: target contém o firstName ou o firstName contém target
+          if (!match) {
+            match = all.find((c) => {
+              const fn = (c.firstName || '').toLowerCase();
+              if (!fn || fn.length < 3) return false;
+              return target.includes(fn) || fn.includes(target);
+            });
+          }
+          if (match) contactId = match.id;
         }
 
         // Match de lead por título

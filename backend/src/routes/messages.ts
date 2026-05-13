@@ -158,6 +158,8 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
       ];
     }
 
+    // Limite defensivo: workspaces com 100k+ mensagens ficavam congelados ao carregar a Inbox.
+    // 5000 mensagens recentes cobrem facilmente milhares de conversas distintas.
     const messages = await prisma.message.findMany({
       where: messageWhere,
       include: {
@@ -166,6 +168,7 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
         sentBy: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
+      take: 5000,
     });
 
     const byKey: Record<string, any> = {};
@@ -227,10 +230,13 @@ router.get('/conversations', async (req: AuthRequest, res: Response, next) => {
 });
 
 // GET /api/messages
+// Devolve as N mensagens mais recentes (em ordem cronológica) — antes devolvia
+// as mais antigas em conversas longas, causando UX confusa e querys lentas.
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { leadId, contactId, allChannels, page = 1, limit = 200 } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const lim = Math.min(Number(limit) || 200, 500);
+    const skip = (Number(page) - 1) * lim;
     const where: any = {};
     if (leadId) where.leadId = leadId;
     if (contactId) where.contactId = contactId;
@@ -241,12 +247,13 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
         { lead: { workspaceId: req.user!.workspaceId } },
       ];
     }
+    // Apanha as mais recentes (desc) e devolve em ordem cronológica
     const messages = await prisma.message.findMany({
-      where, skip, take: Number(limit),
-      orderBy: { createdAt: 'asc' },
+      where, skip, take: lim,
+      orderBy: { createdAt: 'desc' },
       include: messageInclude,
     });
-    res.json(messages);
+    res.json(messages.reverse());
   } catch (e) { next(e); }
 });
 

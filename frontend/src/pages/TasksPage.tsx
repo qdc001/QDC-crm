@@ -1203,12 +1203,26 @@ function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImpo
       // Contacto: "Contato: Gilda das Neves" → "Gilda das Neves"
       const contact = contactRaw.replace(/^\.?\s*Contato:\s*/i, '').trim();
 
+      // Tentar extrair telefone do CONTACT ou da DESCRIPTION (formatos comuns: +258..., 258..., 8X XXX XXXX)
+      const phoneRegex = /(\+?\d[\d\s().-]{6,}\d)/g;
+      const haystack = `${contactRaw} ${description}`;
+      let contactPhone: string | null = null;
+      const phoneMatch = haystack.match(phoneRegex);
+      if (phoneMatch) {
+        // pegar a sequência mais longa que pareça telefone (≥ 9 dígitos)
+        for (const candidate of phoneMatch) {
+          const digits = candidate.replace(/\D/g, '');
+          if (digits.length >= 9 && digits.length <= 15) { contactPhone = digits; break; }
+        }
+      }
+
       return {
         title,
         description: description || null,
         type,
         dueAt: start ? start.toISOString() : null,
         contact: contact || null,
+        contactPhone,
         status: 'PENDING',
       };
     }).filter((t) => t.title);
