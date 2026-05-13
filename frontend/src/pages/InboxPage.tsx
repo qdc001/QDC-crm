@@ -464,6 +464,8 @@ export default function InboxPage() {
   // Tarefa pendente/em curso já existente para o contacto/lead da conversa seleccionada
   const [existingTask, setExistingTask] = useState<any | null>(null);
   const [viewingTask, setViewingTask] = useState<any | null>(null);
+  // Modal de perfil completo do contacto (visível na própria Inbox)
+  const [profileContactId, setProfileContactId] = useState<string | null>(null);
 
   // Pesquisa avançada
   const [showAdvSearch, setShowAdvSearch] = useState(false);
@@ -1844,7 +1846,7 @@ export default function InboxPage() {
               )}
             </div>
 
-            <button onClick={() => navigate(`/contacts?contactId=${selected.contact!.id}`)} className="btn w-full text-xs py-2" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
+            <button onClick={() => setProfileContactId(selected.contact!.id)} className="btn w-full text-xs py-2" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
               <UserIcon size={12} /> Ver perfil completo
             </button>
           </div>
@@ -1911,6 +1913,16 @@ export default function InboxPage() {
         />
       )}
 
+      {/* Modal Perfil do Contacto — abre dentro da Inbox, sem sair */}
+      {profileContactId && (
+        <ContactProfileModal
+          contactId={profileContactId}
+          users={users}
+          onClose={() => setProfileContactId(null)}
+          onSaved={() => loadConversations()}
+        />
+      )}
+
       {/* Lightbox de imagem */}
       {lightboxUrl && (
         <div
@@ -1944,6 +1956,235 @@ export default function InboxPage() {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Modal Perfil do Contacto (visível dentro da Inbox, sem navegar) ───
+function ContactProfileModal({ contactId, users, onClose, onSaved }: {
+  contactId: string;
+  users: User[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [contact, setContact] = useState<any | null>(null);
+  const [tagsAll, setTagsAll] = useState<TagType[]>([]);
+  const [form, setForm] = useState<any>({
+    firstName: '', lastName: '', email: '', phone: '', whatsapp: '',
+    company: '', position: '', website: '', address: '', city: '', country: '',
+    notes: '', assignedToId: '',
+  });
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      api.get(`/contacts/${contactId}`),
+      api.get('/tags'),
+    ]).then(([{ data: c }, { data: tags }]) => {
+      setContact(c);
+      setTagsAll(Array.isArray(tags) ? tags : []);
+      setForm({
+        firstName: c.firstName || '',
+        lastName: c.lastName || '',
+        email: c.email || '',
+        phone: c.phone || '',
+        whatsapp: c.whatsapp || '',
+        company: c.company || '',
+        position: c.position || '',
+        website: c.website || '',
+        address: c.address || '',
+        city: c.city || '',
+        country: c.country || '',
+        notes: c.notes || '',
+        assignedToId: c.assignedToId || c.assignedTo?.id || '',
+      });
+      setSelectedTagIds((c.tags || []).map((t: any) => t.tag?.id || t.tagId).filter(Boolean));
+    }).catch(() => toast.error('Erro a carregar perfil')).finally(() => setLoading(false));
+  }, [contactId]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/contacts/${contactId}`, {
+        ...form,
+        assignedToId: form.assignedToId || null,
+        tags: selectedTagIds,
+      });
+      toast.success('Perfil actualizado');
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro');
+    } finally { setSaving(false); }
+  };
+
+  const toggleTag = (id: string) => {
+    setSelectedTagIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={onClose}>
+      <div className="card w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-white" style={{ background: 'var(--primary)' }}>
+              {contact?.avatar ? (
+                <img src={contact.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+              ) : (
+                (form.firstName?.[0] || '?').toUpperCase()
+              )}
+            </div>
+            <div>
+              <h3 className="font-bold text-base">{form.firstName} {form.lastName}</h3>
+              {form.company && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{form.position ? `${form.position} · ` : ''}{form.company}</p>}
+            </div>
+          </div>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {loading ? (
+          <div className="p-8 text-center"><Loader2 size={24} className="animate-spin inline" /></div>
+        ) : (
+          <div className="p-4 space-y-4">
+            {/* Identificação */}
+            <div>
+              <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>IDENTIFICAÇÃO</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Nome</label>
+                  <input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className="input-base text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Apelido</label>
+                  <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} className="input-base text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Empresa</label>
+                  <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} className="input-base text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Cargo</label>
+                  <input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className="input-base text-sm" />
+                </div>
+              </div>
+            </div>
+
+            {/* Contactos */}
+            <div>
+              <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>CONTACTOS</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Email</label>
+                  <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input-base text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Telefone</label>
+                  <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-base text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>WhatsApp</label>
+                  <input value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} className="input-base text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Website</label>
+                  <input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} className="input-base text-sm" />
+                </div>
+              </div>
+            </div>
+
+            {/* Localização */}
+            <div>
+              <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>LOCALIZAÇÃO</p>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Endereço</label>
+                  <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="input-base text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Cidade</label>
+                  <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className="input-base text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>País</label>
+                  <input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} className="input-base text-sm" />
+                </div>
+              </div>
+            </div>
+
+            {/* Responsável + Tags */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>RESPONSÁVEL</p>
+                <select value={form.assignedToId} onChange={(e) => setForm({ ...form, assignedToId: e.target.value })} className="input-base text-sm">
+                  <option value="">— Sem responsável —</option>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>TAGS</p>
+                {tagsAll.length === 0 ? (
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Sem tags. Cria nas Definições.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {tagsAll.map((t) => {
+                      const on = selectedTagIds.includes(t.id);
+                      return (
+                        <button key={t.id} type="button" onClick={() => toggleTag(t.id)}
+                          className="text-[11px] px-2 py-0.5 rounded font-medium"
+                          style={{
+                            background: on ? (t.color || '#6366F1') : 'var(--surface-3)',
+                            color: on ? 'white' : 'var(--text-secondary)',
+                            border: `1px solid ${on ? (t.color || '#6366F1') : 'var(--border)'}`,
+                          }}>{t.name}</button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Notas */}
+            <div>
+              <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>NOTAS</p>
+              <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="input-base text-sm" rows={3} placeholder="Notas internas sobre o contacto..." />
+            </div>
+
+            {/* Leads associados */}
+            {Array.isArray(contact?.leads) && contact.leads.length > 0 && (
+              <div>
+                <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>LEADS ({contact.leads.length})</p>
+                <div className="space-y-1">
+                  {contact.leads.slice(0, 5).map((l: any) => (
+                    <div key={l.id} className="flex items-center justify-between p-2 rounded text-xs" style={{ background: 'var(--surface-2)' }}>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{l.title}</p>
+                        <p style={{ color: 'var(--text-muted)' }}>{l.stage?.name || '—'} · {l.pipeline?.name || '—'}{l.value ? ` · ${l.value} MZN` : ''}</p>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-medium"
+                        style={{
+                          background: l.status === 'WON' ? '#D1FAE5' : l.status === 'LOST' ? '#FEE2E2' : '#DBEAFE',
+                          color: l.status === 'WON' ? '#065F46' : l.status === 'LOST' ? '#991B1B' : '#1E40AF',
+                        }}>{l.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="flex gap-2 p-4" style={{ borderTop: '1px solid var(--border)' }}>
+          <button onClick={onClose} className="btn flex-1 py-2 text-sm" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving || loading} className="btn btn-primary flex-1 py-2 text-sm">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : 'Guardar'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
