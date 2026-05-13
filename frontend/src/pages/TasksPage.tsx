@@ -303,15 +303,19 @@ function TaskFormModal({
     e.preventDefault();
     if (!title.trim()) { toast.error('Titulo obrigatorio'); return; }
     setLoading(true);
+    // Tarefa ligada apenas ao contacto. Estado/Recorrência/Tags/Subtarefas/Lead foram
+    // removidos do form principal. Edição de estado faz-se via "Marcar concluída" no ViewTaskModal.
     const payload: any = {
-      title, description, type, status, priority,
+      title, description, type, priority,
       dueAt: dueAt ? new Date(dueAt).toISOString() : null,
-      recurrence: recurrence || null,
       assignedToId: assignedToId || undefined,
-      leadId: leadId || null,
       contactId: contactId || null,
-      tags: selectedTagIds,
     };
+    // Preservar estado/recorrência existentes ao editar
+    if (isEdit) {
+      payload.status = status;
+      payload.recurrence = recurrence || null;
+    }
     try {
       let saved: Task;
       if (isEdit) {
@@ -386,16 +390,6 @@ function TaskFormModal({
               <ColoredSelect value={priority} options={wsTaskPriorities} onChange={(v) => setPriority(v as any)} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Estado</label>
-              <ColoredSelect value={status} options={wsTaskStatuses} onChange={(v) => setStatus(v as any)} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Recorrência</label>
-              <ColoredSelect value={recurrence || ''} options={wsTaskRecurrences} onChange={(v) => setRecurrence(v as any)} />
-            </div>
-          </div>
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Data e hora limite</label>
             <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="input-base" />
@@ -406,32 +400,6 @@ function TaskFormModal({
               <option value="">— Eu —</option>
               {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Lead associado</label>
-            <LeadSearchPicker
-              leads={leads}
-              value={leadId}
-              onChange={async (id) => {
-                setLeadId(id);
-                // Linking automático: ao escolher lead, popular contacto se este tiver
-                if (id && !contactId) {
-                  const lead = leads.find((l) => l.id === id);
-                  if (lead?.contact) {
-                    setContactObj(lead.contact);
-                    setContactId(lead.contact.id);
-                  } else {
-                    try {
-                      const { data } = await api.get(`/leads/${id}`);
-                      if (data?.contact) {
-                        setContactObj(data.contact);
-                        setContactId(data.contact.id);
-                      }
-                    } catch {}
-                  }
-                }
-              }}
-            />
           </div>
 
           <div>
@@ -475,27 +443,11 @@ function TaskFormModal({
                       <button
                         key={c.id}
                         type="button"
-                        onClick={async () => {
+                        onClick={() => {
                           setContactObj(c);
                           setContactId(c.id);
                           setContactSearch('');
                           setContactResults([]);
-                          // Linking automático: ao escolher contacto, popular lead aberto se houver
-                          if (!leadId) {
-                            const matchingLead = leads.find((l) =>
-                              l.contact?.id === c.id && l.status === 'OPEN'
-                            );
-                            if (matchingLead) {
-                              setLeadId(matchingLead.id);
-                            } else {
-                              try {
-                                const { data } = await api.get(`/leads?assignedToId=&status=OPEN&limit=200`);
-                                const all: any[] = data.leads || [];
-                                const found = all.find((l: any) => l.contactId === c.id || l.contact?.id === c.id);
-                                if (found) setLeadId(found.id);
-                              } catch {}
-                            }
-                          }
                         }}
                         className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
                       >
@@ -506,82 +458,7 @@ function TaskFormModal({
                 )}
               </div>
             )}
-            <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
-              Se associas a um lead, o contacto é preenchido automaticamente. Se associas só a um contacto, é ligado ao lead aberto desse contacto (se houver).
-            </p>
           </div>
-
-          {/* Tags */}
-          <div>
-            <label className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Tags</label>
-            <div className="flex flex-wrap gap-1.5 p-2 rounded mt-1" style={{ background: 'var(--surface-2)', minHeight: 40 }}>
-              {tags.length === 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Sem tags. Cria em "Gerir tags".</span>}
-              {tags.map((tag) => {
-                const sel = selectedTagIds.includes(tag.id);
-                return (
-                  <button key={tag.id} type="button" onClick={() => toggleTag(tag.id)}
-                    className="text-xs px-2 py-1 rounded font-medium"
-                    style={{
-                      background: sel ? tag.color : tag.color + '22',
-                      color: sel ? '#fff' : tag.color,
-                      border: `1px solid ${tag.color}`,
-                    }}>
-                    {tag.name}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Subtarefas (so em modo edit) */}
-          {isEdit && (
-            <div className="border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-              <p className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
-                Subtarefas {subtasks.length > 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>({subDone}/{subtasks.length})</span>}
-              </p>
-              <div className="space-y-1 mb-2">
-                {subtasks.map((sub) => (
-                  <div key={sub.id} className="flex items-center gap-2 p-2 rounded text-sm" style={{ background: 'var(--surface-2)' }}>
-                    <button type="button" onClick={() => toggleSubtask(sub)} className="w-4 h-4 rounded border flex items-center justify-center flex-shrink-0"
-                      style={{ background: sub.status === 'COMPLETED' ? '#10B981' : 'transparent', borderColor: sub.status === 'COMPLETED' ? '#10B981' : 'var(--border)' }}>
-                      {sub.status === 'COMPLETED' && <Check size={10} style={{ color: '#fff' }} />}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <p style={{ color: 'var(--text-primary)', textDecoration: sub.status === 'COMPLETED' ? 'line-through' : 'none', opacity: sub.status === 'COMPLETED' ? 0.6 : 1 }}>
-                        {sub.title}
-                      </p>
-                      {sub.dueAt && (
-                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                          {new Date(sub.dueAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}
-                        </p>
-                      )}
-                    </div>
-                    <button type="button" onClick={() => deleteSubtask(sub)} className="p-1 rounded hover:bg-red-50">
-                      <Trash2 size={12} style={{ color: '#EF4444' }} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  value={newSubtask}
-                  onChange={(e) => setNewSubtask(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
-                  placeholder="Adicionar subtarefa..."
-                  className="input-base"
-                />
-                <div className="flex gap-1">
-                  <input
-                    type="datetime-local"
-                    value={newSubtaskDue}
-                    onChange={(e) => setNewSubtaskDue(e.target.value)}
-                    className="input-base flex-1 text-xs"
-                    title="Data limite (opcional)"
-                  />
-                  <button type="button" onClick={addSubtask} className="btn btn-primary py-2 px-3"><Plus size={14} /></button>
-                </div>
-              </div>
-            </div>
           )}
 
           <div className="flex gap-2 pt-2">

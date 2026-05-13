@@ -47,19 +47,15 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { title, description, type, status, priority, dueAt, leadId, contactId: rawContactId, assignedToId, recurrence, parentTaskId, tags, force } = req.body;
 
-    // Linking automático: se leadId, popular contactId a partir do lead; se contactId, popular leadId do lead aberto desse contacto
+    // Associação primária ao CONTACTO. Se vier um leadId explícito ainda o preservamos
+    // (compatibilidade com automações antigas), mas não auto-ligamos lead a partir de contacto
+    // — tarefas devem ficar ligadas só ao contacto a partir desta versão.
     let finalLeadId: string | null = leadId || null;
     let finalContactId: string | null = rawContactId || null;
     if (finalLeadId && !finalContactId) {
+      // Se só veio leadId, popular contactId (mantém legacy de criar tarefa a partir do lead)
       const lead = await prisma.lead.findUnique({ where: { id: finalLeadId }, select: { contactId: true } });
       if (lead?.contactId) finalContactId = lead.contactId;
-    }
-    if (finalContactId && !finalLeadId) {
-      const lead = await prisma.lead.findFirst({
-        where: { contactId: finalContactId, status: 'OPEN', workspaceId: req.user!.workspaceId },
-        orderBy: { updatedAt: 'desc' },
-      });
-      if (lead) finalLeadId = lead.id;
     }
 
     // Verificar se já existe tarefa pendente (lead OU contact)
