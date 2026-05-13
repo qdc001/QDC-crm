@@ -1269,11 +1269,13 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const { types: taskTypes, priorities: taskPriorities, lookupType, lookupPriority } = useTaskOptions();
+  const { types: taskTypes, priorities: taskPriorities, titles: taskTitles, lookupType, lookupPriority, lookupTitle } = useTaskOptions();
   const defaultType = taskTypes.find((t) => t.value === 'FOLLOW_UP')?.value || taskTypes[0]?.value || 'FOLLOW_UP';
   const defaultPriority = taskPriorities.find((p) => p.value === 'MEDIUM')?.value || taskPriorities[0]?.value || 'MEDIUM';
+  const defaultTitle = taskTitles[0]?.value || 'Seguimento';
   const fullName = `${contact.firstName}${contact.lastName ? ' ' + contact.lastName : ''}`;
-  const [title, setTitle] = useState(`Seguir ${fullName}`);
+  const [title, setTitle] = useState(defaultTitle);
+  const [description, setDescription] = useState(`Contacto: ${fullName}`);
   const [type, setType] = useState(defaultType);
   const [priority, setPriority] = useState(defaultPriority);
   const [dueAt, setDueAt] = useState<string>(() => {
@@ -1287,7 +1289,7 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
     setSaving(true);
     try {
       await api.post('/tasks', {
-        title, type, priority,
+        title, description, type, priority,
         contactId: contact.id,
         dueAt: dueAt ? new Date(dueAt).toISOString() : null,
         force,
@@ -1328,7 +1330,21 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
           </div>
         ) : (
           <div className="space-y-3">
-            <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-base text-sm" placeholder="Título" />
+            <div>
+              <label className="block text-xs font-medium mb-1">Título</label>
+              <select
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="input-base text-sm"
+                style={{ borderLeft: `4px solid ${lookupTitle(title).color || '#94A3B8'}` }}
+              >
+                {taskTitles.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Descrição</label>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="input-base text-sm" rows={2} placeholder="Detalhes adicionais (opcional)" />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <select
                 value={type}

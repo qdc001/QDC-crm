@@ -130,6 +130,13 @@ export const DEFAULT_TASK_RECURRENCES: TaskOption[] = [
   { value: 'WEEKLY', label: 'Semanalmente' },
   { value: 'MONTHLY', label: 'Mensalmente' },
 ];
+// Títulos pré-definidos para tarefa — configuráveis em Definições → Workspace.
+// Valor = label (são iguais para títulos: a string é o título da tarefa).
+export const DEFAULT_TASK_TITLES: TaskOption[] = [
+  { value: 'Seguimento', label: 'Seguimento', color: '#6366F1' },
+  { value: 'Chamada', label: 'Chamada', color: '#10B981' },
+  { value: 'Reunião', label: 'Reunião', color: '#3B82F6' },
+];
 
 export interface Workspace {
   id: string;
@@ -146,6 +153,7 @@ export interface Workspace {
   taskPriorities?: TaskOption[];
   taskStatuses?: TaskOption[];
   taskRecurrences?: TaskOption[];
+  taskTitles?: TaskOption[];
 }
 
 export interface Pipeline {

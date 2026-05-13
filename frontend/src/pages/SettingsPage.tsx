@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import api, {
   WorkspaceFull, AuditLog, TaskOption,
-  DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES,
+  DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES, DEFAULT_TASK_TITLES,
 } from '../lib/api';
 import { useAuthStore } from '../store';
 import toast from 'react-hot-toast';
@@ -70,6 +70,7 @@ export default function SettingsPage() {
   const [wsTaskPriorities, setWsTaskPriorities] = useState<TaskOption[]>([]);
   const [wsTaskStatuses, setWsTaskStatuses] = useState<TaskOption[]>([]);
   const [wsTaskRecurrences, setWsTaskRecurrences] = useState<TaskOption[]>([]);
+  const [wsTaskTitles, setWsTaskTitles] = useState<TaskOption[]>([]);
   const [savingWs, setSavingWs] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -120,10 +121,12 @@ export default function SettingsPage() {
       const tp = Array.isArray(data.taskPriorities) && data.taskPriorities.length > 0 ? data.taskPriorities : DEFAULT_TASK_PRIORITIES;
       const ts = Array.isArray(data.taskStatuses) && data.taskStatuses.length > 0 ? data.taskStatuses : DEFAULT_TASK_STATUSES;
       const tr = Array.isArray(data.taskRecurrences) && data.taskRecurrences.length > 0 ? data.taskRecurrences : DEFAULT_TASK_RECURRENCES;
+      const ttt = Array.isArray(data.taskTitles) && data.taskTitles.length > 0 ? data.taskTitles : DEFAULT_TASK_TITLES;
       setWsTaskTypes(tt);
       setWsTaskPriorities(tp);
       setWsTaskStatuses(ts);
       setWsTaskRecurrences(tr);
+      setWsTaskTitles(ttt);
       // aplicar cor primaria persistida no servidor
       if (data.primaryColor) applyPrimaryColor(data.primaryColor);
     }).catch(() => {});
@@ -294,6 +297,7 @@ export default function SettingsPage() {
         taskPriorities: wsTaskPriorities,
         taskStatuses: wsTaskStatuses,
         taskRecurrences: wsTaskRecurrences,
+        taskTitles: wsTaskTitles,
       });
       updateWorkspace({
         name: data.name, logo: data.logo, timezone: data.timezone, currency: data.currency,
@@ -302,6 +306,7 @@ export default function SettingsPage() {
         taskPriorities: data.taskPriorities,
         taskStatuses: data.taskStatuses,
         taskRecurrences: data.taskRecurrences,
+        taskTitles: data.taskTitles,
       } as any);
       applyPrimaryColor(data.primaryColor);
       setDateFormatPref(data.dateFormat);
@@ -726,6 +731,12 @@ export default function SettingsPage() {
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Personaliza os valores que aparecem nos selectors quando crias/editas uma tarefa. <strong>Atenção:</strong> alterar valores existentes pode quebrar tarefas já criadas.
             </p>
+            <OptionListEditor
+              title="Títulos (selector no Título da tarefa)"
+              options={wsTaskTitles}
+              defaults={DEFAULT_TASK_TITLES}
+              onChange={setWsTaskTitles}
+            />
             <OptionListEditor
               title="Tipos"
               options={wsTaskTypes}

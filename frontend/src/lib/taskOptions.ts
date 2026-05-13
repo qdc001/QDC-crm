@@ -11,6 +11,7 @@ import {
   DEFAULT_TASK_PRIORITIES,
   DEFAULT_TASK_STATUSES,
   DEFAULT_TASK_RECURRENCES,
+  DEFAULT_TASK_TITLES,
 } from './api';
 
 const placeholder = (value: string): TaskOption => ({ value, label: value, color: '#94A3B8' });
@@ -30,6 +31,9 @@ export function useTaskOptions() {
   const recurrences: TaskOption[] = ((workspace?.taskRecurrences as TaskOption[] | undefined)?.length
     ? (workspace!.taskRecurrences as TaskOption[])
     : DEFAULT_TASK_RECURRENCES);
+  const titles: TaskOption[] = ((workspace?.taskTitles as TaskOption[] | undefined)?.length
+    ? (workspace!.taskTitles as TaskOption[])
+    : DEFAULT_TASK_TITLES);
 
   const lookupType = (v: string | null | undefined): TaskOption =>
     types.find((o) => o.value === v) || placeholder(v || '');
@@ -39,6 +43,8 @@ export function useTaskOptions() {
     statuses.find((o) => o.value === v) || placeholder(v || '');
   const lookupRecurrence = (v: string | null | undefined): TaskOption =>
     recurrences.find((o) => o.value === (v || '')) || placeholder(v || '');
+  const lookupTitle = (v: string | null | undefined): TaskOption =>
+    titles.find((o) => o.value === v) || placeholder(v || '');
 
-  return { types, priorities, statuses, recurrences, lookupType, lookupPriority, lookupStatus, lookupRecurrence };
+  return { types, priorities, statuses, recurrences, titles, lookupType, lookupPriority, lookupStatus, lookupRecurrence, lookupTitle };
 }

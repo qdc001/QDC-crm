@@ -83,6 +83,8 @@ model Workspace {
   taskPriorities   Json @default("[]")
   taskStatuses     Json @default("[]")
   taskRecurrences  Json @default("[]")
+  // Títulos pré-definidos para tarefa (ex: Slide, Sinopse, Projecto, Monografia)
+  taskTitles       Json @default("[]")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

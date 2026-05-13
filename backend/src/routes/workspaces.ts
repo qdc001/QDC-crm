@@ -24,7 +24,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -41,6 +41,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(taskPriorities !== undefined && { taskPriorities }),
         ...(taskStatuses !== undefined && { taskStatuses }),
         ...(taskRecurrences !== undefined && { taskRecurrences }),
+        ...(taskTitles !== undefined && { taskTitles }),
       },
     });
     await prisma.auditLog.create({
@@ -51,6 +52,12 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         description: `Workspace actualizada por ${req.user!.email}`,
       },
     });
+
+    // Notificar todos os membros via socket para que vejam as alterações sem precisar
+    // de fazer logout/login. Cada cliente actualiza o store local.
+    const io = (global as any).io;
+    if (io) io.to(`workspace:${req.user!.workspaceId}`).emit('workspace:updated', workspace);
+
     res.json(workspace);
   } catch (e) { next(e); }
 });

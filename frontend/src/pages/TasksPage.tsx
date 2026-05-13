@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import api, {
   Task, User, Lead, Tag as TagType, Pipeline, Stage, TaskOption,
-  DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES,
+  DEFAULT_TASK_TYPES, DEFAULT_TASK_PRIORITIES, DEFAULT_TASK_STATUSES, DEFAULT_TASK_RECURRENCES, DEFAULT_TASK_TITLES,
 } from '../lib/api';
 import toast from 'react-hot-toast';
 import { useUIStore } from '../store';
@@ -237,13 +237,14 @@ function TaskFormModalV2({
 }) {
   const isEdit = !!task?.id;
   const navigate = useNavigate();
-  const [title, setTitle] = useState(task?.title || '');
-  const [description, setDescription] = useState(task?.description || '');
   const { workspace } = useAuthStore();
   const wsTaskTypes = (workspace?.taskTypes && (workspace.taskTypes as any).length > 0) ? (workspace.taskTypes as any) : DEFAULT_TASK_TYPES;
   const wsTaskPriorities = (workspace?.taskPriorities && (workspace.taskPriorities as any).length > 0) ? (workspace.taskPriorities as any) : DEFAULT_TASK_PRIORITIES;
   const wsTaskStatuses = (workspace?.taskStatuses && (workspace.taskStatuses as any).length > 0) ? (workspace.taskStatuses as any) : DEFAULT_TASK_STATUSES;
   const wsTaskRecurrences = (workspace?.taskRecurrences && (workspace.taskRecurrences as any).length > 0) ? (workspace.taskRecurrences as any) : DEFAULT_TASK_RECURRENCES;
+  const wsTaskTitles = ((workspace as any)?.taskTitles && ((workspace as any).taskTitles as any).length > 0) ? ((workspace as any).taskTitles as any) : DEFAULT_TASK_TITLES;
+  const [title, setTitle] = useState(task?.title || wsTaskTitles[0]?.value || '');
+  const [description, setDescription] = useState(task?.description || '');
 
   const [type, setType] = useState(task?.type || 'CALL');
   const [status, setStatus] = useState(task?.status || 'PENDING');
@@ -361,7 +362,7 @@ function TaskFormModalV2({
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Título *</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-base" required autoFocus placeholder="Ex: Ligar ao cliente" />
+            <ColoredSelect value={title} options={wsTaskTitles} onChange={(v) => setTitle(v)} placeholder="Escolhe um título" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Descrição</label>

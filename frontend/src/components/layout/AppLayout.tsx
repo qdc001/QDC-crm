@@ -38,7 +38,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function AppLayout() {
-  const { user, workspace, logout, updateUser } = useAuthStore();
+  const { user, workspace, logout, updateUser, updateWorkspace } = useAuthStore();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [copilotOpen, setCopilotOpen] = useState(false);
@@ -64,13 +64,19 @@ export default function AppLayout() {
     if (!socket) return;
     const onDown = (data: any) => setEvoDown({ minutes: data.minutesDown || 0, message: data.message || 'WhatsApp desligado' });
     const onState = (data: any) => { if (data.state === 'open' || data.recovered) setEvoDown(null); };
+    // Quando OWNER/ADMIN actualiza as Definições do workspace, todos os membros
+    // ligados recebem o evento e o store local é actualizado — assim Tipos/Prioridades/Títulos
+    // ficam imediatamente sincronizados em todas as sessões abertas.
+    const onWsUpdate = (ws: any) => { if (ws) updateWorkspace(ws); };
     socket.on('evolution:disconnected', onDown);
     socket.on('evolution:state', onState);
+    socket.on('workspace:updated', onWsUpdate);
     return () => {
       socket.off('evolution:disconnected', onDown);
       socket.off('evolution:state', onState);
+      socket.off('workspace:updated', onWsUpdate);
     };
-  }, []);
+  }, [updateWorkspace]);
 
   // Pesquisa global (partilhada via store para destacar tambem no kanban)
   const { globalSearchQuery: query, setGlobalSearchQuery: setQuery } = useUIStore();
