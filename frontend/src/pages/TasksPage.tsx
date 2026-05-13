@@ -459,7 +459,6 @@ function TaskFormModal({
               </div>
             )}
           </div>
-          )}
 
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
