@@ -48,7 +48,11 @@ async function sendWhatsAppOut(workspaceId: string, phone: string, content: stri
     if (creds.baseUrl && creds.apiKey && creds.instanceName) {
       try {
         let path: string;
-        let body: any = { number: phone.replace(/\D/g, '') };
+        // Suporte de grupos: se o `phone` é um JID completo (contém '@g.us'),
+        // enviá-lo tal qual à Evolution; senão, ficar com dígitos do número.
+        const isGroupJid = typeof phone === 'string' && phone.includes('@g.us');
+        const destination = isGroupJid ? phone : phone.replace(/\D/g, '');
+        let body: any = { number: destination };
 
         if (type === 'AUDIO' && mediaUrl) {
           // Endpoint dedicado para áudio (converte para opus aceito pelo WhatsApp)

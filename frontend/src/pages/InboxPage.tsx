@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Send, Paperclip, Phone, MoreVertical, Mail, MessageSquare,
   MessageCircle, Loader2, ExternalLink, X, GitBranch, RefreshCw, Check, CheckCheck,
-  Inbox, Building2, User as UserIcon, Star, Archive, Edit3, Trash2,
+  Inbox, Building2, User as UserIcon, Users as UsersIcon, Star, Archive, Edit3, Trash2,
   Reply, Sparkles, FileText, Plus, Lock, Zap, Wand2, ThumbsUp, PanelRightOpen, PanelRightClose, Mic, Eye, EyeOff, CheckSquare, Calendar,
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
@@ -409,6 +409,7 @@ export default function InboxPage() {
   const [sending, setSending] = useState(false);
   const [isInternalNote, setIsInternalNote] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [editingContent, setEditingContent] = useState('');
   const [attachment, setAttachment] = useState<{ url: string; name: string; mimeType: string; size: number } | null>(null);
@@ -1264,6 +1265,7 @@ export default function InboxPage() {
               const isFav = !!meta?.isPinned;
               const isArc = !!meta?.isArchived;
               const initial = (conv.contact?.firstName?.[0] || '?').toUpperCase();
+              const isGroup = !!conv.contact?.whatsapp?.endsWith('@g.us');
               const priority = (meta?.priority || 'NORMAL') as string;
               return (
                 <div key={conv.key} className="relative group" style={{ borderLeft: `3px solid ${priority !== 'NORMAL' ? priorityColor(priority) : 'transparent'}` }}>
@@ -1274,8 +1276,8 @@ export default function InboxPage() {
                       {conv.contact?.avatar ? (
                         <img src={conv.contact.avatar} className="w-10 h-10 rounded-full object-cover" alt="" />
                       ) : (
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: 'var(--primary)' }}>
-                          {conv.contact?.type === 'COMPANY' ? <Building2 size={16} /> : initial}
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: isGroup ? '#10B981' : 'var(--primary)' }}>
+                          {isGroup ? <UsersIcon size={16} /> : conv.contact?.type === 'COMPANY' ? <Building2 size={16} /> : initial}
                         </div>
                       )}
                       {isFav && <Star size={10} className="absolute -top-1 -right-1 fill-yellow-400" style={{ color: '#F59E0B' }} />}
@@ -1648,6 +1650,9 @@ export default function InboxPage() {
                             <button onClick={() => setReplyTo(msg)} className="p-1 rounded bg-white shadow-sm" title="Responder">
                               <Reply size={11} style={{ color: 'var(--text-secondary)' }} />
                             </button>
+                            <button onClick={() => setForwardingMessage(msg)} className="p-1 rounded bg-white shadow-sm" title="Reencaminhar">
+                              <Send size={11} style={{ color: 'var(--text-secondary)' }} />
+                            </button>
                             {isMe && (
                               <>
                                 <button onClick={() => startEdit(msg)} className="p-1 rounded bg-white shadow-sm" title="Editar">
@@ -1968,6 +1973,15 @@ export default function InboxPage() {
         />
       )}
 
+      {/* Modal Reencaminhar mensagem */}
+      {forwardingMessage && (
+        <ForwardMessageModal
+          message={forwardingMessage}
+          onClose={() => setForwardingMessage(null)}
+          onSent={(n) => { setForwardingMessage(null); toast.success(`Reencaminhado para ${n} ${n === 1 ? 'contacto' : 'contactos'}`); }}
+        />
+      )}
+
       {/* Modal Ver Tarefa (compacto, edicao rapida) */}
       {viewingTask && (
         <ViewTaskModal
@@ -2248,6 +2262,150 @@ function ContactProfileModal({ contactId, users, onClose, onSaved }: {
           <button onClick={onClose} className="btn flex-1 py-2 text-sm" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
           <button onClick={handleSave} disabled={saving || loading} className="btn btn-primary flex-1 py-2 text-sm">
             {saving ? <Loader2 size={14} className="animate-spin" /> : 'Guardar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal Reencaminhar Mensagem ──────────────────────────────────────
+function ForwardMessageModal({ message, onClose, onSent }: {
+  message: any;
+  onClose: () => void;
+  onSent: (count: number) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [results, setResults] = useState<Contact[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sending, setSending] = useState(false);
+  const [extraComment, setExtraComment] = useState('');
+
+  // Carregar contactos (pesquisa via API)
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        const q = encodeURIComponent(search.trim());
+        const url = q ? `/contacts?search=${q}&limit=50` : '/contacts?limit=50';
+        const { data } = await api.get(url);
+        setResults(data.contacts || []);
+      } catch { setResults([]); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const toggle = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSend = async () => {
+    if (selectedIds.size === 0) return;
+    setSending(true);
+    let ok = 0;
+    for (const cid of selectedIds) {
+      try {
+        // Reencaminhar: enviar o mesmo conteúdo (mediaUrl, type, content) para o contacto
+        // Para WhatsApp como canal por defeito; o backend tenta canais disponíveis.
+        await api.post('/messages', {
+          content: message.content,
+          channel: 'WHATSAPP',
+          contactId: cid,
+          type: message.type || 'TEXT',
+          mediaUrl: message.mediaUrl || undefined,
+          mediaType: message.mediaType || undefined,
+        });
+        ok++;
+        // Se há comentário extra, enviar como mensagem separada de seguida
+        if (extraComment.trim()) {
+          try {
+            await api.post('/messages', {
+              content: extraComment.trim(),
+              channel: 'WHATSAPP',
+              contactId: cid,
+              type: 'TEXT',
+            });
+          } catch { /* silent */ }
+        }
+      } catch (e: any) {
+        toast.error(`Falhou para ${cid.slice(-4)}: ${e.response?.data?.message || 'erro'}`);
+      }
+    }
+    setSending(false);
+    onSent(ok);
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+      <div className="card w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid var(--border)' }}>
+          <h3 className="font-bold text-base">Reencaminhar mensagem</h3>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {/* Preview da mensagem */}
+        <div className="p-3 mx-4 my-3 rounded text-xs" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>
+          {message.mediaUrl && (message.type === 'IMAGE' || message.mediaType?.startsWith('image/')) && (
+            <img src={message.mediaUrl} alt="" className="rounded mb-1" style={{ maxHeight: 80 }} />
+          )}
+          <p className="line-clamp-3">{message.content || '[Anexo]'}</p>
+        </div>
+
+        {/* Pesquisa */}
+        <div className="px-4">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Pesquisar contacto..."
+            className="input-base text-sm"
+            autoFocus
+          />
+        </div>
+
+        {/* Comentário extra (opcional) */}
+        <div className="px-4 mt-2">
+          <input
+            value={extraComment}
+            onChange={(e) => setExtraComment(e.target.value)}
+            placeholder="Comentário opcional a juntar..."
+            className="input-base text-sm"
+          />
+        </div>
+
+        {/* Lista de contactos */}
+        <div className="px-4 mt-3 mb-3 max-h-72 overflow-y-auto">
+          {results.length === 0 && <p className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>Sem resultados</p>}
+          {results.map((c) => {
+            const checked = selectedIds.has(c.id);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => toggle(c.id)}
+                className="w-full flex items-center gap-2 p-2 rounded hover:bg-slate-100 text-left"
+                style={{ background: checked ? 'var(--primary-light)' : 'transparent' }}
+              >
+                <div className="w-4 h-4 rounded border flex items-center justify-center" style={{ background: checked ? 'var(--primary)' : 'transparent', borderColor: checked ? 'var(--primary)' : 'var(--border)' }}>
+                  {checked && <Check size={10} style={{ color: '#fff' }} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{c.firstName} {c.lastName || ''}</p>
+                  {(c.phone || c.whatsapp) && (
+                    <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{c.phone || c.whatsapp}</p>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex gap-2 p-4" style={{ borderTop: '1px solid var(--border)' }}>
+          <button onClick={onClose} className="btn flex-1 py-2 text-sm" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
+          <button onClick={handleSend} disabled={sending || selectedIds.size === 0} className="btn btn-primary flex-1 py-2 text-sm">
+            {sending ? <Loader2 size={14} className="animate-spin" /> : <><Send size={12} /> Enviar ({selectedIds.size})</>}
           </button>
         </div>
       </div>

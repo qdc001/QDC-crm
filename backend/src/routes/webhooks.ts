@@ -491,7 +491,9 @@ router.post('/evolution', async (req: Request, res: Response) => {
 
       for (const m of messages) {
         const remoteJid: string = m.key?.remoteJid || '';
-        if (!remoteJid || remoteJid.endsWith('@g.us')) continue; // ignorar grupos
+        if (!remoteJid) continue;
+        if (remoteJid.endsWith('@broadcast')) continue; // ignorar broadcast lists
+        const isGroup = remoteJid.endsWith('@g.us');
 
         const fromMe = !!m.key?.fromMe;
         const externalId: string | undefined = m.key?.id;
@@ -587,60 +589,90 @@ router.post('/evolution', async (req: Request, res: Response) => {
 
         // Encontrar/criar contacto (com formatação de número e detecção de LID)
         const phoneInfo = analysePhone(phone);
-        // Descartar pushName se for o do dono da instância (guardado em creds.ownerName)
         const ownerName: string | null = (matched.credentials as any)?.ownerName || null;
         const incomingPush =
           m.pushName && ownerName && String(m.pushName).trim().toLowerCase() === ownerName.toLowerCase()
             ? ''
             : (m.pushName || '');
-        const contactName = nameFromPushOrPhone(incomingPush, phone);
-        let contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
-        if (!contact) {
-          contact = await prisma.contact.create({
-            data: {
-              firstName: contactName,
-              whatsapp: phoneInfo.rawDigits,
-              phone: phoneInfo.isLid ? null : phoneInfo.display,
-              workspaceId,
-              type: 'PERSON',
-            },
-          });
-        } else if (incomingPush && incomingPush.trim()) {
-          // Substitui nome só se o actual for placeholder (numero/Contacto WhatsApp/ownerName)
-          const trimmed = (contact.firstName || '').trim();
-          const looksLikePlaceholder =
-            !trimmed ||
-            /^\+?\d[\d\s]*$/.test(trimmed) ||
-            trimmed === 'Contacto WhatsApp' ||
-            (!!ownerName && trimmed.toLowerCase() === ownerName.toLowerCase());
-          if (looksLikePlaceholder && contactName !== trimmed) {
-            contact = await prisma.contact.update({ where: { id: contact.id }, data: { firstName: contactName } });
+
+        let contact: any;
+        let lead: any = null;
+
+        if (isGroup) {
+          // GRUPO — guardamos o JID completo no campo `whatsapp` (não usamos só dígitos).
+          // Type=COMPANY para distinguir visualmente. Nome do grupo vem de chat.subject
+          // ou cai para "Grupo WhatsApp". O participant pushName é prefixo da mensagem.
+          const groupJid = remoteJid;
+          const groupName = m.pushName || 'Grupo WhatsApp'; // pushName do grupo vem como nome do grupo em alguns clientes
+          contact = await prisma.contact.findFirst({ where: { whatsapp: groupJid, workspaceId } });
+          if (!contact) {
+            contact = await prisma.contact.create({
+              data: {
+                firstName: groupName,
+                whatsapp: groupJid,
+                workspaceId,
+                type: 'COMPANY',
+                notes: 'Grupo WhatsApp (não enviar campanhas)',
+              },
+            });
+          }
+          // Para grupos, prefixar conteúdo com o nome do participante para se ver quem disse o quê
+          // (continuamos abaixo no extracção do content — temos de fazer pós-prefixo)
+        } else {
+          // CONTACTO normal (1-1)
+          const contactName = nameFromPushOrPhone(incomingPush, phone);
+          contact = await prisma.contact.findFirst({ where: { whatsapp: phoneInfo.rawDigits, workspaceId } });
+          if (!contact) {
+            contact = await prisma.contact.create({
+              data: {
+                firstName: contactName,
+                whatsapp: phoneInfo.rawDigits,
+                phone: phoneInfo.isLid ? null : phoneInfo.display,
+                workspaceId,
+                type: 'PERSON',
+              },
+            });
+          } else if (incomingPush && incomingPush.trim()) {
+            const trimmed = (contact.firstName || '').trim();
+            const looksLikePlaceholder =
+              !trimmed ||
+              /^\+?\d[\d\s]*$/.test(trimmed) ||
+              trimmed === 'Contacto WhatsApp' ||
+              (!!ownerName && trimmed.toLowerCase() === ownerName.toLowerCase());
+            if (looksLikePlaceholder && contactName !== trimmed) {
+              contact = await prisma.contact.update({ where: { id: contact.id }, data: { firstName: contactName } });
+            }
+          }
+
+          // Encontrar/criar lead aberto (só para contactos 1-1, não para grupos)
+          lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
+          if (!lead) {
+            const pipeline = await prisma.pipeline.findFirst({
+              where: { workspaceId, isDefault: true },
+              include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
+            });
+            if (pipeline?.stages[0]) {
+              const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
+              if (owner) {
+                lead = await prisma.lead.create({
+                  data: {
+                    title: `WhatsApp - ${contactName}`,
+                    source: 'WhatsApp (Evolution)',
+                    workspaceId,
+                    pipelineId: pipeline.id,
+                    stageId: pipeline.stages[0].id,
+                    contactId: contact.id,
+                    createdById: owner.id,
+                  },
+                });
+              }
+            }
           }
         }
 
-        // Encontrar/criar lead aberto
-        let lead = await prisma.lead.findFirst({ where: { contactId: contact.id, status: 'OPEN', workspaceId } });
-        if (!lead) {
-          const pipeline = await prisma.pipeline.findFirst({
-            where: { workspaceId, isDefault: true },
-            include: { stages: { orderBy: { position: 'asc' }, take: 1 } },
-          });
-          if (pipeline?.stages[0]) {
-            const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' } });
-            if (owner) {
-              lead = await prisma.lead.create({
-                data: {
-                  title: `WhatsApp - ${contactName}`,
-                  source: 'WhatsApp (Evolution)',
-                  workspaceId,
-                  pipelineId: pipeline.id,
-                  stageId: pipeline.stages[0].id,
-                  contactId: contact.id,
-                  createdById: owner.id,
-                },
-              });
-            }
-          }
+        // Para grupos: prefixar conteúdo com o nome do participante (se inbound)
+        if (isGroup && !fromMe && m.pushName && content) {
+          content = `${m.pushName}: ${content}`;
         }
 
         const saved = await prisma.message.create({
