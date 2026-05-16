@@ -757,20 +757,33 @@ export default function InboxPage() {
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { readReceiptsRef.current = readReceipts; }, [readReceipts]);
 
-  // Procurar tarefa pendente/em curso para a conversa seleccionada
-  useEffect(() => {
-    if (!selected?.contact?.id && !selected?.leadId) { setExistingTask(null); return; }
-    const params = new URLSearchParams();
-    if (selected.leadId) params.set('leadId', selected.leadId);
-    else if (selected.contact?.id) params.set('contactId', selected.contact.id);
-    api.get(`/tasks?${params.toString()}`)
-      .then(({ data }) => {
-        const list = Array.isArray(data) ? data : [];
-        const open = list.find((t: any) => t.status === 'PENDING' || t.status === 'IN_PROGRESS') || null;
-        setExistingTask(open);
-      })
-      .catch(() => setExistingTask(null));
-  }, [selected?.contact?.id, selected?.leadId]);
+  // Re-procura tarefa pendente/em curso para a conversa actual.
+  // Procura em paralelo por contactId E leadId — a tarefa pode estar ligada a um ou outro.
+  const refreshExistingTask = async () => {
+    const contactId = selected?.contact?.id;
+    const leadId = selected?.leadId;
+    if (!contactId && !leadId) { setExistingTask(null); return; }
+    const fetches: Promise<any>[] = [];
+    if (contactId) fetches.push(api.get(`/tasks?contactId=${contactId}`).then((r) => r.data).catch(() => []));
+    if (leadId) fetches.push(api.get(`/tasks?leadId=${leadId}`).then((r) => r.data).catch(() => []));
+    try {
+      const results = await Promise.all(fetches);
+      const all: any[] = [];
+      const seen = new Set<string>();
+      for (const arr of results) {
+        if (Array.isArray(arr)) {
+          for (const t of arr) {
+            if (t && t.id && !seen.has(t.id)) { seen.add(t.id); all.push(t); }
+          }
+        }
+      }
+      const open = all.find((t: any) =>
+        (t.status === 'PENDING' || t.status === 'IN_PROGRESS') && !t.parentTaskId,
+      ) || null;
+      setExistingTask(open);
+    } catch { setExistingTask(null); }
+  };
+  useEffect(() => { refreshExistingTask(); /* eslint-disable-next-line */ }, [selected?.contact?.id, selected?.leadId]);
 
   useEffect(() => {
     if (!selected) { setMessages([]); return; }
@@ -1949,6 +1962,7 @@ export default function InboxPage() {
           onCreated={(t) => {
             setNewTaskFor(null);
             if (t) setExistingTask(t);
+            else refreshExistingTask();
             toast.success('Tarefa criada');
           }}
         />
@@ -1960,8 +1974,8 @@ export default function InboxPage() {
           task={viewingTask}
           onClose={() => setViewingTask(null)}
           onUpdated={(t) => { setViewingTask(t); setExistingTask(t); }}
-          onCompleted={() => { setViewingTask(null); setExistingTask(null); toast.success('Tarefa concluída'); }}
-          onDeleted={() => { setViewingTask(null); setExistingTask(null); toast.success('Tarefa eliminada'); }}
+          onCompleted={() => { setViewingTask(null); refreshExistingTask(); toast.success('Tarefa concluída'); }}
+          onDeleted={() => { setViewingTask(null); refreshExistingTask(); toast.success('Tarefa eliminada'); }}
         />
       )}
 
