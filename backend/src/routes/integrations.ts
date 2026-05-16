@@ -938,6 +938,51 @@ router.post('/evolution/fix-names', async (req: AuthRequest, res: Response, next
   } catch (e) { next(e); }
 });
 
+// GET /api/integrations/evolution/groups
+// Lista grupos WhatsApp disponíveis na instância Evolution.
+// Devolve [{ jid, name }] para usar no selector de digest por utilizador.
+router.get('/evolution/groups', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const integration = await prisma.integration.findFirst({
+      where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
+    });
+    if (!integration) throw new AppError('Evolution não configurada', 400);
+    const creds: any = integration.credentials || {};
+    if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
+      throw new AppError('Configuração Evolution incompleta', 400);
+    }
+
+    let chats: any[] = [];
+    try {
+      const r = await evolutionFetch(creds, `/chat/findChats/${creds.instanceName}`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      chats = Array.isArray(r) ? r : (r?.chats || r?.data || []);
+    } catch {
+      try {
+        const r = await evolutionFetch(creds, `/chat/findChats/${creds.instanceName}`, { method: 'GET' });
+        chats = Array.isArray(r) ? r : (r?.chats || r?.data || []);
+      } catch (e: any) {
+        throw new AppError(`Não foi possível listar chats: ${e.message}`, 502);
+      }
+    }
+
+    const groups = chats
+      .filter((c: any) => {
+        const jid = c?.remoteJid || c?.id || c?.chatId || '';
+        return String(jid).endsWith('@g.us');
+      })
+      .map((c: any) => ({
+        jid: c?.remoteJid || c?.id || c?.chatId || '',
+        name: c?.name || c?.subject || c?.pushName || c?.notify || 'Grupo sem nome',
+      }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+    res.json({ groups });
+  } catch (e) { next(e); }
+});
+
 // POST /api/integrations/evolution/disconnect - logout / desliga a sessão
 router.post('/evolution/disconnect', async (req: AuthRequest, res: Response, next) => {
   try {

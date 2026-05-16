@@ -13,6 +13,7 @@ const router = Router();
 
 const userSelect = {
   id: true, name: true, email: true, avatar: true, phone: true,
+  digestGroupJid: true,
   role: true, isActive: true, status: true, internalNotes: true,
   viewOnlyOwn: true, teamId: true,
   twoFactorEnabled: true, language: true, emailPreferences: true,
@@ -244,7 +245,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN podem editar membros', 403);
     }
-    const { role, isActive, name, internalNotes, viewOnlyOwn, teamId } = req.body;
+    const { role, isActive, name, internalNotes, viewOnlyOwn, teamId, phone, digestGroupJid } = req.body;
     if (role === 'OWNER' && req.user!.role !== 'OWNER') {
       throw new AppError('Apenas OWNER pode promover outro a OWNER', 403);
     }
@@ -261,6 +262,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
         ...(internalNotes !== undefined && { internalNotes }),
         ...(viewOnlyOwn !== undefined && { viewOnlyOwn }),
         ...(teamId !== undefined && { teamId: teamId || null }),
+        ...(phone !== undefined && { phone: phone || null }),
+        ...(digestGroupJid !== undefined && { digestGroupJid: digestGroupJid || null }),
       },
       select: userSelect,
     });

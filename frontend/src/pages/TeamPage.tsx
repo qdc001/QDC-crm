@@ -145,12 +145,29 @@ function MemberDetailModal({ user, teams, onClose, onChanged }: {
   const [internalNotes, setInternalNotes] = useState((user as any).internalNotes || '');
   const [viewOnlyOwn, setViewOnlyOwn] = useState((user as any).viewOnlyOwn || false);
   const [teamId, setTeamId] = useState((user as any).teamId || '');
+  const [phone, setPhone] = useState((user as any).phone || '');
+  const [digestGroupJid, setDigestGroupJid] = useState((user as any).digestGroupJid || '');
+  const [groups, setGroups] = useState<{ jid: string; name: string }[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Carregar grupos da Evolution para o selector
+  useEffect(() => {
+    setLoadingGroups(true);
+    api.get('/integrations/evolution/groups')
+      .then(({ data }) => setGroups(data.groups || []))
+      .catch(() => setGroups([]))
+      .finally(() => setLoadingGroups(false));
+  }, []);
 
   const save = async () => {
     setLoading(true);
     try {
-      await api.patch(`/users/${user.id}`, { internalNotes, viewOnlyOwn, teamId: teamId || null });
+      await api.patch(`/users/${user.id}`, {
+        internalNotes, viewOnlyOwn, teamId: teamId || null,
+        phone: phone || null,
+        digestGroupJid: digestGroupJid || null,
+      });
       toast.success('Guardado');
       onChanged();
       onClose();
@@ -172,6 +189,27 @@ function MemberDetailModal({ user, teams, onClose, onChanged }: {
               <option value="">— Sem equipa —</option>
               {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Telefone WhatsApp</label>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} className="input-base" placeholder="+258 84 ..." />
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Usado para envio do digest se não houver grupo configurado.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Grupo WhatsApp para digest diário</label>
+            <select value={digestGroupJid} onChange={(e) => setDigestGroupJid(e.target.value)} className="input-base">
+              <option value="">— Não enviar para grupo (usa telefone acima) —</option>
+              {groups.map((g) => (
+                <option key={g.jid} value={g.jid}>{g.name}</option>
+              ))}
+            </select>
+            {loadingGroups ? (
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>A carregar grupos...</p>
+            ) : groups.length === 0 ? (
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Nenhum grupo encontrado na Evolution. Garante que o WhatsApp está ligado e que pertences a algum grupo.</p>
+            ) : (
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Digest diário é enviado para este grupo (prioridade sobre o telefone).</p>
+            )}
           </div>
           <div>
             <label className="flex items-center gap-2 text-sm cursor-pointer">

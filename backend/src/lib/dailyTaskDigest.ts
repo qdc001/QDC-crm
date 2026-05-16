@@ -128,8 +128,11 @@ function buildMessage(userName: string, buckets: DigestBuckets): string | null {
   return parts.join('\n');
 }
 
-async function sendWhatsAppToUser(workspace: any, userPhone: string, body: string): Promise<boolean> {
-  // Procura integração Evolution activa do workspace
+// Envia mensagem WhatsApp para um destino (JID de grupo ou número individual).
+// - JID acabado em @g.us → enviado tal como está (grupo).
+// - JID acabado em @s.whatsapp.net → tal como está.
+// - Caso contrário → dígitos do telefone.
+async function sendWhatsAppToDestination(workspace: any, destination: string, body: string): Promise<boolean> {
   const evo = await prisma.integration.findFirst({
     where: { workspaceId: workspace.id, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
   });
@@ -137,8 +140,9 @@ async function sendWhatsAppToUser(workspace: any, userPhone: string, body: strin
   const creds: any = evo.credentials || {};
   if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return false;
 
-  const number = userPhone.replace(/\D/g, '');
-  if (number.length < 7) return false;
+  const isJid = destination.includes('@g.us') || destination.includes('@s.whatsapp.net');
+  const number = isJid ? destination : destination.replace(/\D/g, '');
+  if (!number || (!isJid && number.length < 7)) return false;
 
   try {
     const url = `${creds.baseUrl.replace(/\/$/, '')}/message/sendText/${creds.instanceName}`;
@@ -155,20 +159,21 @@ async function sendWhatsAppToUser(workspace: any, userPhone: string, body: strin
 }
 
 async function processWorkspace(workspace: any): Promise<void> {
-  // Carregar todos os utilizadores activos com telefone preenchido
+  // Carregar utilizadores activos. Prioridade: digestGroupJid (grupo) > phone.
   const users = await prisma.user.findMany({
-    where: { workspaceId: workspace.id, isActive: true, phone: { not: null } },
-    select: { id: true, name: true, phone: true },
+    where: { workspaceId: workspace.id, isActive: true },
+    select: { id: true, name: true, phone: true, digestGroupJid: true },
   });
 
   let sent = 0;
   for (const u of users) {
     try {
-      if (!u.phone) continue;
+      const destination = (u.digestGroupJid && u.digestGroupJid.trim()) || (u.phone && u.phone.trim()) || '';
+      if (!destination) continue;
       const buckets = await buildBucketsForUser(u.id, workspace.id);
       const message = buildMessage(u.name, buckets);
       if (!message) continue;
-      const ok = await sendWhatsAppToUser(workspace, u.phone, message);
+      const ok = await sendWhatsAppToDestination(workspace, destination, message);
       if (ok) sent++;
     } catch (e: any) {
       console.error(`digest user ${u.id} error:`, e.message);
@@ -216,16 +221,17 @@ export async function runDigestForWorkspace(workspaceId: string): Promise<{ user
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   if (!workspace) return { users: 0, sent: 0 };
   const users = await prisma.user.findMany({
-    where: { workspaceId, isActive: true, phone: { not: null } },
-    select: { id: true, name: true, phone: true },
+    where: { workspaceId, isActive: true },
+    select: { id: true, name: true, phone: true, digestGroupJid: true },
   });
   let sent = 0;
   for (const u of users) {
-    if (!u.phone) continue;
+    const destination = (u.digestGroupJid && u.digestGroupJid.trim()) || (u.phone && u.phone.trim()) || '';
+    if (!destination) continue;
     const buckets = await buildBucketsForUser(u.id, workspaceId);
     const message = buildMessage(u.name, buckets);
     if (!message) continue;
-    const ok = await sendWhatsAppToUser(workspace, u.phone, message);
+    const ok = await sendWhatsAppToDestination(workspace, destination, message);
     if (ok) sent++;
   }
   return { users: users.length, sent };

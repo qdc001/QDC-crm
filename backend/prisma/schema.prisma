@@ -16,6 +16,9 @@ model User {
   password     String
   avatar       String?
   phone        String?
+  // JID do grupo WhatsApp para onde se envia o digest diário deste utilizador
+  // (formato: 258...-12345@g.us). Se preenchido, sobrepõe-se ao `phone` no digest.
+  digestGroupJid String?
   role         UserRole @default(AGENT)
   isActive     Boolean  @default(true)
   status       String   @default("OFFLINE") // ONLINE | AWAY | BUSY | DND | OFFLINE
