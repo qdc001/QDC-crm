@@ -829,7 +829,7 @@ export default function SettingsPage() {
             <div className="border-t pt-3 mt-2 space-y-2" style={{ borderColor: 'var(--border)' }}>
               <p className="text-xs font-semibold">Estilo da mensagem</p>
               <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                Edita cada parte. Usa placeholders entre chavetas. Disponíveis em todas as partes: <code>{'{firstName}'}</code>, <code>{'{fullName}'}</code>, <code>{'{date}'}</code>. Nas secções: <code>{'{count}'}</code>, <code>{'{list}'}</code>. No formato de cada linha: <code>{'{title}'}</code>, <code>{'{contact}'}</code>, <code>{'{contactDash}'}</code>, <code>{'{due}'}</code>, <code>{'{dueParen}'}</code>, <code>{'{overdueSuffix}'}</code>.
+                Edita cada parte. Usa placeholders entre chavetas. Disponíveis em todas as partes: <code>{'{firstName}'}</code>, <code>{'{fullName}'}</code>, <code>{'{date}'}</code>. Nas secções: <code>{'{count}'}</code>, <code>{'{list}'}</code>. No formato de cada linha: <code>{'{title}'}</code>, <code>{'{contact}'}</code>, <code>{'{contactDash}'}</code>, <code>{'{due}'}</code>, <code>{'{dueParen}'}</code>, <code>{'{overdueSuffix}'}</code>. Para <strong>negrito</strong> no WhatsApp usa <code>*{'{title}'}*</code>.
               </p>
               {([
                 ['header', 'Saudação'],
@@ -850,6 +850,17 @@ export default function SettingsPage() {
                   />
                 </div>
               ))}
+              <div>
+                <label className="block text-[11px] mb-1" style={{ color: 'var(--text-muted)' }}>Espaçamento entre tarefas</label>
+                <select
+                  className="input-base text-xs"
+                  value={wsDigestTemplate.taskSeparator ?? '\n\n'}
+                  onChange={(e) => setWsDigestTemplate({ ...wsDigestTemplate, taskSeparator: e.target.value })}
+                >
+                  <option value={'\n\n'}>Com linha em branco entre tarefas</option>
+                  <option value={'\n'}>Sem linha em branco (lista compacta)</option>
+                </select>
+              </div>
               <div className="flex gap-2">
                 <button
                   type="button"

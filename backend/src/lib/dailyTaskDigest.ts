@@ -100,6 +100,7 @@ export const DEFAULT_DIGEST_TEMPLATE = {
   todayHeader: '📅 Hoje ({count}):\n{list}',
   tomorrowHeader: '🔜 Amanhã ({count}):\n{list}',
   taskLine: '• {title}{contactDash}{dueParen}{overdueSuffix}',
+  taskSeparator: '\n\n',
   footer: 'Bom trabalho!',
 };
 export type DigestTemplate = typeof DEFAULT_DIGEST_TEMPLATE;
@@ -147,24 +148,26 @@ function buildMessageParts(userName: string, buckets: DigestBuckets, template?: 
 
   const baseVars = { firstName, fullName: userName, date: dateStr };
 
+  const sep = t.taskSeparator ?? '\n\n';
+
   // Parte 1: saudação + atrasadas
   const part1Lines: string[] = [renderStr(t.header, baseVars)];
   if (buckets.overdue.length) {
-    const list = buckets.overdue.map((task) => formatTaskLine(t.taskLine, task)).join('\n\n');
+    const list = buckets.overdue.map((task) => formatTaskLine(t.taskLine, task)).join(sep);
     part1Lines.push('', renderStr(t.overdueHeader, { ...baseVars, count: String(buckets.overdue.length), list }));
   }
 
   // Parte 2: hoje
   let part2: string | null = null;
   if (buckets.today.length) {
-    const list = buckets.today.map((task) => formatTaskLine(t.taskLine, task)).join('\n\n');
+    const list = buckets.today.map((task) => formatTaskLine(t.taskLine, task)).join(sep);
     part2 = renderStr(t.todayHeader, { ...baseVars, count: String(buckets.today.length), list });
   }
 
   // Parte 3: amanhã + rodapé
   const part3Lines: string[] = [];
   if (buckets.tomorrow.length) {
-    const list = buckets.tomorrow.map((task) => formatTaskLine(t.taskLine, task)).join('\n\n');
+    const list = buckets.tomorrow.map((task) => formatTaskLine(t.taskLine, task)).join(sep);
     part3Lines.push(renderStr(t.tomorrowHeader, { ...baseVars, count: String(buckets.tomorrow.length), list }), '');
   }
   part3Lines.push(renderStr(t.footer, baseVars));
