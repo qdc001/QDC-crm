@@ -289,6 +289,52 @@ export async function runDailyDigests(): Promise<void> {
   }
 }
 
+// Notificação imediata via WhatsApp quando um contacto ou lead é atribuído a um utilizador.
+// Envia para digestGroupJid (grupo) ou phone (fallback), tal como o digest diário.
+export async function notifyWhatsAppAssignment(
+  workspaceId: string,
+  assignedToId: string,
+  entityType: 'contact' | 'lead',
+  entityId: string,
+): Promise<void> {
+  const [user, workspace] = await Promise.all([
+    prisma.user.findUnique({ where: { id: assignedToId }, select: { name: true, digestGroupJid: true, phone: true } }),
+    prisma.workspace.findUnique({ where: { id: workspaceId } }),
+  ]);
+  if (!user || !workspace) return;
+
+  const destination = (user.digestGroupJid && user.digestGroupJid.trim()) || (user.phone && user.phone.trim()) || '';
+  if (!destination) return;
+
+  let message = '';
+  const firstName = user.name.split(' ')[0];
+
+  if (entityType === 'contact') {
+    const contact = await prisma.contact.findUnique({
+      where: { id: entityId },
+      select: { firstName: true, lastName: true, phone: true },
+    });
+    if (!contact) return;
+    const name = `${contact.firstName} ${contact.lastName || ''}`.trim();
+    message = `👤 *${firstName}*, foi-te atribuído um contacto:\n*${name}*${contact.phone ? `\n📞 ${contact.phone}` : ''}`;
+  } else {
+    const lead = await prisma.lead.findUnique({
+      where: { id: entityId },
+      include: {
+        contact: { select: { firstName: true, lastName: true } },
+        stage: { select: { name: true } },
+        pipeline: { select: { name: true } },
+      },
+    });
+    if (!lead) return;
+    const contactLine = lead.contact ? `\n👤 ${`${lead.contact.firstName} ${lead.contact.lastName || ''}`.trim()}` : '';
+    const stageLine = lead.pipeline && lead.stage ? `\n📋 ${lead.pipeline.name} › ${lead.stage.name}` : '';
+    message = `🎯 *${firstName}*, foi-te atribuído um lead:\n*${lead.title}*${contactLine}${stageLine}`;
+  }
+
+  await sendWhatsAppToDestination(workspace, destination, message);
+}
+
 // Permite disparar manualmente para um workspace (ex. via endpoint de teste)
 export async function runDigestForWorkspace(workspaceId: string): Promise<{ users: number; sent: number }> {
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });

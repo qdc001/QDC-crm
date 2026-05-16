@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
 import { notifyNewLead } from '../lib/notify';
 import { propagateAssignee } from '../lib/propagateAssignee';
+import { notifyWhatsAppAssignment } from '../lib/dailyTaskDigest';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -115,6 +116,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       triggerAutomations({ type: 'lead_assigned', workspaceId: req.user!.workspaceId, entityType: 'lead', entityId: lead.id })
         .catch((e) => console.error('Automation lead_assigned error:', e));
       notifyNewLead(lead.id, lead.assignedToId).catch((e) => console.error('notifyNewLead error:', e));
+      notifyWhatsAppAssignment(req.user!.workspaceId, lead.assignedToId, 'lead', lead.id).catch(() => {});
     }
 
     res.status(201).json(lead);
@@ -193,6 +195,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
         triggerAutomations({ type: 'lead_assigned', workspaceId: req.user!.workspaceId, entityType: 'lead', entityId: lead.id })
           .catch(() => {});
         notifyNewLead(lead.id, assignedToId).catch(() => {});
+        notifyWhatsAppAssignment(req.user!.workspaceId, assignedToId, 'lead', lead.id).catch(() => {});
       }
       // Propagar para Contact + ConversationMeta + outros leads do mesmo contacto
       if (lead.contactId) {

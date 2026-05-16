@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { triggerAutomations } from '../lib/automationEngine';
 import { propagateAssignee } from '../lib/propagateAssignee';
+import { notifyWhatsAppAssignment } from '../lib/dailyTaskDigest';
 const prisma = new PrismaClient();
 const router = Router();
 
@@ -307,6 +308,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     // Propagar responsável para conversas + leads se a chamada inclui assignedToId
     if (rest.assignedToId !== undefined) {
       await propagateAssignee(req.user!.workspaceId, contact.id, rest.assignedToId || null, 'contact');
+      if (rest.assignedToId) {
+        notifyWhatsAppAssignment(req.user!.workspaceId, rest.assignedToId, 'contact', contact.id).catch(() => {});
+      }
     }
 
     res.json(contact);
