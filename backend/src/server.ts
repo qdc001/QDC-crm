@@ -47,6 +47,7 @@ import { rateLimiter } from './middleware/rateLimiter';
 import { processExpiredDelays } from './lib/chatbotEngine';
 import { checkOverdueTasks, processScheduledAutomations, checkNoResponseConversations, checkStagnantLeads } from './lib/automationEngine';
 import { checkEvolutionInstances } from './lib/evolutionMonitor';
+import { runDailyDigests } from './lib/dailyTaskDigest';
 
 const app = express();
 const httpServer = createServer(app);
@@ -184,6 +185,12 @@ setInterval(() => {
 setTimeout(() => {
   checkEvolutionInstances().catch(() => {});
 }, 30_000);
+
+// Digest diário de tarefas — corre a cada minuto. A função verifica se algum
+// workspace tem o digest agendado para esta HH:MM e dispara só nesses casos.
+setInterval(() => {
+  runDailyDigests().catch((e) => console.error('runDailyDigests error:', e));
+}, 60_000);
 
 (global as any).io = io;
 export { io };

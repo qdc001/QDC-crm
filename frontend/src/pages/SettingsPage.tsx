@@ -72,6 +72,10 @@ export default function SettingsPage() {
   const [wsTaskRecurrences, setWsTaskRecurrences] = useState<TaskOption[]>([]);
   const [wsTaskTitles, setWsTaskTitles] = useState<TaskOption[]>([]);
   const [wsTaskFieldLabels, setWsTaskFieldLabels] = useState<TaskFieldLabels>({});
+  const [wsDigestEnabled, setWsDigestEnabled] = useState(false);
+  const [wsDigestHour, setWsDigestHour] = useState(7);
+  const [wsDigestMinute, setWsDigestMinute] = useState(0);
+  const [testingDigest, setTestingDigest] = useState(false);
   const [savingWs, setSavingWs] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -129,6 +133,9 @@ export default function SettingsPage() {
       setWsTaskRecurrences(tr);
       setWsTaskTitles(ttt);
       setWsTaskFieldLabels((data.taskFieldLabels && typeof data.taskFieldLabels === 'object') ? data.taskFieldLabels : {});
+      setWsDigestEnabled(!!data.dailyDigestEnabled);
+      setWsDigestHour(typeof data.dailyDigestHour === 'number' ? data.dailyDigestHour : 7);
+      setWsDigestMinute(typeof data.dailyDigestMinute === 'number' ? data.dailyDigestMinute : 0);
       // aplicar cor primaria persistida no servidor
       if (data.primaryColor) applyPrimaryColor(data.primaryColor);
     }).catch(() => {});
@@ -301,6 +308,9 @@ export default function SettingsPage() {
         taskRecurrences: wsTaskRecurrences,
         taskTitles: wsTaskTitles,
         taskFieldLabels: wsTaskFieldLabels,
+        dailyDigestEnabled: wsDigestEnabled,
+        dailyDigestHour: wsDigestHour,
+        dailyDigestMinute: wsDigestMinute,
       });
       updateWorkspace({
         name: data.name, logo: data.logo, timezone: data.timezone, currency: data.currency,
@@ -776,6 +786,53 @@ export default function SettingsPage() {
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Digest diário de tarefas */}
+          <div className="border-t pt-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
+            <p className="text-sm font-semibold">Digest diário de tarefas (WhatsApp)</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Envia automaticamente para cada membro da equipa, à hora definida, um resumo via WhatsApp com as tarefas <strong>atrasadas</strong>, <strong>de hoje</strong> e <strong>de amanhã</strong>. Requer que o membro tenha telefone preenchido na ficha de utilizador e que a Evolution esteja ligada.
+            </p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={wsDigestEnabled}
+                onChange={(e) => setWsDigestEnabled(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm">Activar digest diário</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <label className="text-xs" style={{ color: 'var(--text-muted)' }}>Hora de envio (Maputo):</label>
+              <select value={wsDigestHour} onChange={(e) => setWsDigestHour(Number(e.target.value))} className="input-base text-sm" style={{ width: 'auto' }}>
+                {Array.from({ length: 24 }).map((_, i) => (
+                  <option key={i} value={i}>{i.toString().padStart(2, '0')}</option>
+                ))}
+              </select>
+              <span>:</span>
+              <select value={wsDigestMinute} onChange={(e) => setWsDigestMinute(Number(e.target.value))} className="input-base text-sm" style={{ width: 'auto' }}>
+                {[0, 15, 30, 45].map((m) => (
+                  <option key={m} value={m}>{m.toString().padStart(2, '0')}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={async () => {
+                setTestingDigest(true);
+                try {
+                  const { data } = await api.post('/workspaces/me/daily-digest/test');
+                  toast.success(`Digest enviado a ${data.sent}/${data.users} membros`);
+                } catch (e: any) {
+                  toast.error(e.response?.data?.message || 'Erro');
+                } finally { setTestingDigest(false); }
+              }}
+              disabled={testingDigest}
+              className="btn py-1.5 px-3 text-xs"
+              style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+            >
+              {testingDigest ? <Loader2 size={12} className="animate-spin" /> : 'Enviar agora (teste)'}
+            </button>
           </div>
 
           <div className="flex gap-2 pt-2">

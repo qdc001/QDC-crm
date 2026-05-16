@@ -176,6 +176,9 @@ export interface Workspace {
   taskRecurrences?: TaskOption[];
   taskTitles?: TaskOption[];
   taskFieldLabels?: TaskFieldLabels;
+  dailyDigestEnabled?: boolean;
+  dailyDigestHour?: number;
+  dailyDigestMinute?: number;
 }
 
 export interface Pipeline {

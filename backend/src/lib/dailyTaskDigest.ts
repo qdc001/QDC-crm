@@ -1,0 +1,232 @@
+// Digest diário de tarefas — envia WhatsApp a cada responsável às HH:MM
+// definidas no Workspace. Lista tarefas atrasadas, de hoje e de amanhã.
+//
+// O cron corre a cada minuto (em server.ts). Aqui filtra-se quais workspaces
+// devem disparar agora e processa-se cada um.
+
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+interface MaputoTime { hour: number; minute: number; ymd: string; }
+function nowInMaputo(): MaputoTime {
+  // Africa/Maputo = UTC+2 (sem DST). Usamos Intl para extrair partes em qualquer timezone.
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Maputo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const parts = fmt.formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || '00';
+  return {
+    hour: Number(get('hour')),
+    minute: Number(get('minute')),
+    ymd: `${get('year')}-${get('month')}-${get('day')}`,
+  };
+}
+
+// Range "início do dia" e "fim do dia" no fuso Maputo, devolve Date UTC equivalentes.
+function maputoDayRange(offsetDays: number = 0): { from: Date; to: Date } {
+  const t = nowInMaputo();
+  const [y, m, d] = t.ymd.split('-').map(Number);
+  // Construir Date em UTC representando 00:00 e 23:59:59 Maputo (UTC+2 → subtrair 2h da meia-noite local)
+  const fromUtc = new Date(Date.UTC(y, m - 1, d + offsetDays, 0 - 2, 0, 0));
+  const toUtc = new Date(Date.UTC(y, m - 1, d + offsetDays, 23 - 2, 59, 59, 999));
+  return { from: fromUtc, to: toUtc };
+}
+
+function formatDueLocal(dt: Date): string {
+  return new Intl.DateTimeFormat('pt-PT', {
+    timeZone: 'Africa/Maputo',
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).format(dt);
+}
+
+function daysOverdue(dueAt: Date): number {
+  const today = maputoDayRange(0).from.getTime();
+  return Math.max(1, Math.floor((today - dueAt.getTime()) / 86400000));
+}
+
+interface DigestBuckets {
+  overdue: any[];
+  today: any[];
+  tomorrow: any[];
+}
+
+async function buildBucketsForUser(userId: string, workspaceId: string): Promise<DigestBuckets> {
+  const today = maputoDayRange(0);
+  const tomorrow = maputoDayRange(1);
+
+  const baseWhere: any = {
+    assignedToId: userId,
+    status: { in: ['PENDING', 'IN_PROGRESS'] },
+    parentTaskId: null,
+    assignedTo: { workspaceId },
+  };
+
+  const [overdue, todayTasks, tomorrowTasks] = await Promise.all([
+    prisma.task.findMany({
+      where: { ...baseWhere, dueAt: { lt: today.from, not: null } },
+      orderBy: { dueAt: 'asc' },
+      take: 30,
+      include: { contact: { select: { firstName: true, lastName: true } } },
+    }),
+    prisma.task.findMany({
+      where: { ...baseWhere, dueAt: { gte: today.from, lte: today.to } },
+      orderBy: { dueAt: 'asc' },
+      take: 30,
+      include: { contact: { select: { firstName: true, lastName: true } } },
+    }),
+    prisma.task.findMany({
+      where: { ...baseWhere, dueAt: { gte: tomorrow.from, lte: tomorrow.to } },
+      orderBy: { dueAt: 'asc' },
+      take: 30,
+      include: { contact: { select: { firstName: true, lastName: true } } },
+    }),
+  ]);
+
+  return { overdue, today: todayTasks, tomorrow: tomorrowTasks };
+}
+
+function formatTaskLine(t: any): string {
+  const contactName = t.contact ? `${t.contact.firstName} ${t.contact.lastName || ''}`.trim() : '';
+  const due = t.dueAt ? formatDueLocal(new Date(t.dueAt)) : '';
+  const title = (t.title || '').trim() || 'Tarefa';
+  return `• ${title}${contactName ? ` — ${contactName}` : ''}${due ? ` (${due})` : ''}`;
+}
+
+function buildMessage(userName: string, buckets: DigestBuckets): string | null {
+  const total = buckets.overdue.length + buckets.today.length + buckets.tomorrow.length;
+  if (total === 0) return null;
+
+  const parts: string[] = [`Bom dia, ${userName.split(' ')[0]}! ☀️`, ''];
+
+  if (buckets.overdue.length) {
+    parts.push(`📋 Atrasadas (${buckets.overdue.length}):`);
+    for (const t of buckets.overdue) {
+      const days = t.dueAt ? daysOverdue(new Date(t.dueAt)) : 0;
+      const suffix = days ? ` — atrasada ${days} ${days === 1 ? 'dia' : 'dias'}` : '';
+      parts.push(formatTaskLine(t) + suffix);
+    }
+    parts.push('');
+  }
+
+  if (buckets.today.length) {
+    parts.push(`📅 Hoje (${buckets.today.length}):`);
+    for (const t of buckets.today) parts.push(formatTaskLine(t));
+    parts.push('');
+  }
+
+  if (buckets.tomorrow.length) {
+    parts.push(`🔜 Amanhã (${buckets.tomorrow.length}):`);
+    for (const t of buckets.tomorrow) parts.push(formatTaskLine(t));
+    parts.push('');
+  }
+
+  parts.push('Bom trabalho!');
+  return parts.join('\n');
+}
+
+async function sendWhatsAppToUser(workspace: any, userPhone: string, body: string): Promise<boolean> {
+  // Procura integração Evolution activa do workspace
+  const evo = await prisma.integration.findFirst({
+    where: { workspaceId: workspace.id, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+  });
+  if (!evo) return false;
+  const creds: any = evo.credentials || {};
+  if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) return false;
+
+  const number = userPhone.replace(/\D/g, '');
+  if (number.length < 7) return false;
+
+  try {
+    const url = `${creds.baseUrl.replace(/\/$/, '')}/message/sendText/${creds.instanceName}`;
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+      body: JSON.stringify({ number, text: body }),
+    });
+    return r.ok;
+  } catch (e: any) {
+    console.error('digest sendWhatsApp error:', e.message);
+    return false;
+  }
+}
+
+async function processWorkspace(workspace: any): Promise<void> {
+  // Carregar todos os utilizadores activos com telefone preenchido
+  const users = await prisma.user.findMany({
+    where: { workspaceId: workspace.id, isActive: true, phone: { not: null } },
+    select: { id: true, name: true, phone: true },
+  });
+
+  let sent = 0;
+  for (const u of users) {
+    try {
+      if (!u.phone) continue;
+      const buckets = await buildBucketsForUser(u.id, workspace.id);
+      const message = buildMessage(u.name, buckets);
+      if (!message) continue;
+      const ok = await sendWhatsAppToUser(workspace, u.phone, message);
+      if (ok) sent++;
+    } catch (e: any) {
+      console.error(`digest user ${u.id} error:`, e.message);
+    }
+  }
+
+  await prisma.workspace.update({
+    where: { id: workspace.id },
+    data: { dailyDigestLastRunAt: new Date() },
+  });
+
+  console.log(`[digest] workspace ${workspace.name}: enviado a ${sent}/${users.length} utilizadores`);
+}
+
+// Função principal chamada pelo cron a cada minuto
+export async function runDailyDigests(): Promise<void> {
+  const t = nowInMaputo();
+  try {
+    const workspaces = await prisma.workspace.findMany({
+      where: {
+        dailyDigestEnabled: true,
+        dailyDigestHour: t.hour,
+        dailyDigestMinute: t.minute,
+      },
+    });
+
+    for (const ws of workspaces) {
+      // Idempotência: não correr 2x no mesmo dia
+      if (ws.dailyDigestLastRunAt) {
+        const lastRunYmd = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Africa/Maputo',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(new Date(ws.dailyDigestLastRunAt));
+        if (lastRunYmd === t.ymd) continue;
+      }
+      await processWorkspace(ws);
+    }
+  } catch (e: any) {
+    console.error('runDailyDigests fatal:', e.message);
+  }
+}
+
+// Permite disparar manualmente para um workspace (ex. via endpoint de teste)
+export async function runDigestForWorkspace(workspaceId: string): Promise<{ users: number; sent: number }> {
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  if (!workspace) return { users: 0, sent: 0 };
+  const users = await prisma.user.findMany({
+    where: { workspaceId, isActive: true, phone: { not: null } },
+    select: { id: true, name: true, phone: true },
+  });
+  let sent = 0;
+  for (const u of users) {
+    if (!u.phone) continue;
+    const buckets = await buildBucketsForUser(u.id, workspaceId);
+    const message = buildMessage(u.name, buckets);
+    if (!message) continue;
+    const ok = await sendWhatsAppToUser(workspace, u.phone, message);
+    if (ok) sent++;
+  }
+  return { users: users.length, sent };
+}

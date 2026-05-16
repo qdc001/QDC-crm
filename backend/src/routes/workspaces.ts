@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
+import { runDigestForWorkspace } from '../lib/dailyTaskDigest';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -24,7 +25,7 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
     if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
       throw new AppError('Apenas OWNER/ADMIN', 403);
     }
-    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels } = req.body;
+    const { name, slug, logo, timezone, currency, primaryColor, dateFormat, fiscalYearStartMonth, autoAssignEnabled, taskTypes, taskPriorities, taskStatuses, taskRecurrences, taskTitles, taskFieldLabels, dailyDigestEnabled, dailyDigestHour, dailyDigestMinute } = req.body;
     const workspace = await prisma.workspace.update({
       where: { id: req.user!.workspaceId },
       data: {
@@ -43,6 +44,9 @@ router.patch('/me', async (req: AuthRequest, res: Response, next) => {
         ...(taskRecurrences !== undefined && { taskRecurrences }),
         ...(taskTitles !== undefined && { taskTitles }),
         ...(taskFieldLabels !== undefined && { taskFieldLabels }),
+        ...(dailyDigestEnabled !== undefined && { dailyDigestEnabled: !!dailyDigestEnabled }),
+        ...(dailyDigestHour !== undefined && { dailyDigestHour: Math.max(0, Math.min(23, Number(dailyDigestHour) || 0)) }),
+        ...(dailyDigestMinute !== undefined && { dailyDigestMinute: Math.max(0, Math.min(59, Number(dailyDigestMinute) || 0)) }),
       },
     });
     await prisma.auditLog.create({
@@ -112,6 +116,18 @@ router.get('/export', async (req: AuthRequest, res: Response, next) => {
       exportedAt: new Date().toISOString(),
       workspace, users, pipelines, stages, leads, contacts, tasks, messages, tags, customFields, goals, teams,
     });
+  } catch (e) { next(e); }
+});
+
+// POST /api/workspaces/me/daily-digest/test
+// Dispara o digest diário manualmente para o workspace actual (para teste).
+router.post('/me/daily-digest/test', async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!['OWNER', 'ADMIN'].includes(req.user!.role)) {
+      throw new AppError('Apenas OWNER/ADMIN', 403);
+    }
+    const result = await runDigestForWorkspace(req.user!.workspaceId);
+    res.json(result);
   } catch (e) { next(e); }
 });
 
