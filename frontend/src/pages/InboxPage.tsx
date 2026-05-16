@@ -1333,7 +1333,7 @@ export default function InboxPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{fullName(conv.contact)}</span>
-                        <span className="text-xs flex-shrink-0 ml-2" style={{ color: 'var(--text-muted)' }}>{timeShort(conv.lastMessage.createdAt)}</span>
+                        <span className="text-xs flex-shrink-0 ml-2" style={{ color: 'var(--text-muted)' }}>{conv.lastMessage?.createdAt ? timeShort(conv.lastMessage.createdAt) : ''}</span>
                       </div>
                       <div className="flex items-center gap-1 mt-0.5">
                         {conv.combined && conv.channels && conv.channels.length > 1 ? (
@@ -1344,14 +1344,14 @@ export default function InboxPage() {
                           <ChannelBadge channel={conv.channel} />
                         )}
                         <span className="text-xs truncate" style={{ color: conv.unread > 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: conv.unread > 0 ? 500 : 400 }}>
-                          {conv.lastMessage.direction === 'OUTBOUND' && (
+                          {conv.lastMessage?.direction === 'OUTBOUND' && (
                             <span className="mr-1 font-medium" style={{ color: 'var(--primary)' }}>
                               {conv.lastMessage.sentBy
                                 ? (conv.lastMessage.sentBy.id === user?.id ? 'Você' : conv.lastMessage.sentBy.name.split(' ')[0])
                                 : 'Sistema'}:
                             </span>
                           )}
-                          {conv.lastMessage.content?.slice(0, 50)}
+                          {conv.lastMessage?.content?.slice(0, 50) || <span style={{ fontStyle: 'italic' }}>(sem mensagens ainda)</span>}
                         </span>
                         {conv.unread > 0 && (
                           <span className="ml-auto text-xs px-1.5 py-0.5 rounded-full text-white flex-shrink-0 font-medium" style={{ background: 'var(--primary)', fontSize: 10 }}>
