@@ -291,28 +291,31 @@ function isWithinBusinessHours(flow: any, now: Date = new Date()): boolean {
   return true;
 }
 
-// ── Chamada à Anthropic API ───────────────────────────
-async function callClaude(systemPrompt: string, history: { role: string; content: string }[]): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+// ── Chamada à API de IA (Groq, formato OpenAI) ────────
+async function callAi(systemPrompt: string, history: { role: string; content: string }[]): Promise<string> {
+  const apiKey = process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return '[IA não configurada]';
+  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model,
         max_tokens: 400,
-        system: systemPrompt,
-        messages: history,
+        temperature: 0.7,
+        messages: [{ role: 'system', content: systemPrompt }, ...history],
       }),
     });
     if (!res.ok) return '[Erro IA]';
-    const data = await res.json();
-    return data.content?.[0]?.text || '';
+    const data: any = await res.json();
+    return data.choices?.[0]?.message?.content || '';
   } catch {
     return '[Erro IA]';
   }
 }
+// Backwards-compat alias usado nos nós do chatbot.
+const callClaude = callAi;
 
 // ── Execução de acções internas ───────────────────────
 async function executeAction(node: FlowNode, ctx: RunContext) {

@@ -5,32 +5,61 @@ import { AppError } from '../middleware/errorHandler';
 import prisma from '../lib/prisma';
 const router = Router();
 
-const AI_MODEL = 'claude-sonnet-4-20250514';
-const AI_API = 'https://api.anthropic.com/v1/messages';
+// IA via Groq (API compatível com OpenAI Chat Completions).
+// Modelo default: llama-3.3-70b-versatile — alta qualidade e suporte multilingue (PT-MZ).
+// Outros disponíveis: llama-3.1-8b-instant (rápido/barato), mixtral-8x7b-32768 (contexto grande), gemma2-9b-it.
+// Override por env: GROQ_MODEL.
+const AI_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const AI_API = 'https://api.groq.com/openai/v1/chat/completions';
 
-async function callClaude(systemPrompt: string, userMessage: string, apiKey: string, maxTokens = 1024): Promise<string> {
+function getAiKey(): string {
+  // GROQ_API_KEY tem prioridade; aceita também ANTHROPIC_API_KEY como fallback
+  // para não partir deploys antigos antes de mudar a env var no Easypanel.
+  const key = process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new AppError('GROQ_API_KEY não configurada no backend', 500);
+  return key;
+}
+
+// Chamada genérica ao Groq. Aceita systemPrompt + 1 mensagem user (caso simples)
+// ou systemPrompt + array completo de messages (caso com histórico).
+async function callGroq(
+  systemPrompt: string,
+  userMessageOrMessages: string | Array<{ role: 'user' | 'assistant'; content: string }>,
+  apiKey: string,
+  maxTokens = 1024,
+): Promise<string> {
+  const messages: Array<{ role: string; content: string }> = [{ role: 'system', content: systemPrompt }];
+  if (typeof userMessageOrMessages === 'string') {
+    messages.push({ role: 'user', content: userMessageOrMessages });
+  } else {
+    messages.push(...userMessageOrMessages);
+  }
+
   const res = await fetch(AI_API, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: AI_MODEL,
       max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
+      temperature: 0.7,
+      messages,
     }),
   });
 
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error?.message || 'Erro na API de IA');
+    let detail = `HTTP ${res.status}`;
+    try {
+      const err: any = await res.json();
+      detail = err?.error?.message || err?.message || detail;
+    } catch {}
+    throw new Error(`Groq: ${detail}`);
   }
 
-  const data = await res.json();
-  return data.content[0]?.text || '';
+  const data: any = await res.json();
+  return data.choices?.[0]?.message?.content || '';
 }
 
 // ── GET lead context helper ───────────────────────────
@@ -57,8 +86,7 @@ router.post('/summarize', async (req: AuthRequest, res: Response, next) => {
     const { leadId } = req.body;
     if (!leadId) throw new AppError('leadId é obrigatório', 400);
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+    const apiKey = getAiKey();
 
     const lead = await getLeadContext(leadId, req.user!.workspaceId);
     if (!lead) throw new AppError('Lead não encontrado', 404);
@@ -71,7 +99,7 @@ router.post('/summarize', async (req: AuthRequest, res: Response, next) => {
     const notes = lead.notes.map((n) => `- ${n.content}`).join('\n');
     const tasks = lead.tasks.map((t) => `- ${t.title} (${t.status}${t.dueAt ? `, prazo: ${new Date(t.dueAt).toLocaleDateString('pt')}` : ''})`).join('\n');
 
-    const summary = await callClaude(
+    const summary = await callGroq(
       `Você é um assistente CRM profissional. Analisa dados de leads e fornece resumos claros e accionáveis em Português de Moçambique. Seja conciso e prático.`,
       `Cria um resumo executivo deste lead para o gestor de vendas:
 
@@ -107,8 +135,7 @@ router.post('/suggest-reply', async (req: AuthRequest, res: Response, next) => {
   try {
     const { leadId, lastMessage, tone = 'profissional' } = req.body;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+    const apiKey = getAiKey();
 
     const lead = await getLeadContext(leadId, req.user!.workspaceId);
 
@@ -116,7 +143,7 @@ router.post('/suggest-reply', async (req: AuthRequest, res: Response, next) => {
       ? `Lead: ${lead.title}, Etapa: ${lead.stage.name}, Contacto: ${lead.contact?.firstName || 'Cliente'}`
       : 'Contexto do lead não disponível';
 
-    const suggestions = await callClaude(
+    const suggestions = await callGroq(
       `Você é um assistente de vendas experiente. Sugere respostas para mensagens de clientes. Responde em Português de Moçambique. Tom: ${tone}.`,
       `${context}
 
@@ -144,8 +171,7 @@ router.post('/suggest-fields', async (req: AuthRequest, res: Response, next) => 
   try {
     const { leadId } = req.body;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+    const apiKey = getAiKey();
 
     const lead = await getLeadContext(leadId, req.user!.workspaceId);
     if (!lead) throw new AppError('Lead não encontrado', 404);
@@ -154,7 +180,7 @@ router.post('/suggest-fields', async (req: AuthRequest, res: Response, next) => 
       .map((m) => `[${m.direction === 'INBOUND' ? 'Cliente' : 'Agente'}]: ${m.content}`)
       .join('\n');
 
-    const result = await callClaude(
+    const result = await callGroq(
       `Analisa conversas de vendas e extrai informações sobre o cliente. Responde APENAS em JSON válido.`,
       `Com base nesta conversa, extrai informações do cliente que possam estar em falta no CRM.
 
@@ -194,10 +220,9 @@ router.post('/sentiment', async (req: AuthRequest, res: Response, next) => {
   try {
     const { message } = req.body;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+    const apiKey = getAiKey();
 
-    const result = await callClaude(
+    const result = await callGroq(
       `Analisa o sentimento de mensagens de clientes. Responde APENAS em JSON.`,
       `Analisa o sentimento desta mensagem de cliente: "${message}"
 
@@ -223,8 +248,7 @@ router.post('/improve-text', async (req: AuthRequest, res: Response, next) => {
     const { text, action = 'improve', tone = 'profissional' } = req.body;
     // action: 'improve' | 'formal' | 'casual' | 'shorter' | 'correct-grammar'
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+    const apiKey = getAiKey();
 
     const actions: Record<string, string> = {
       improve: `Melhora este texto mantendo o significado. Tom: ${tone}.`,
@@ -236,7 +260,7 @@ router.post('/improve-text', async (req: AuthRequest, res: Response, next) => {
 
     const instruction = actions[action] || actions.improve;
 
-    const result = await callClaude(
+    const result = await callGroq(
       `Você é um editor de texto profissional. Reescreve textos em Português de Moçambique. Responde APENAS com o texto melhorado, sem explicações.`,
       `${instruction}\n\nTexto original: "${text}"`,
       apiKey,
@@ -253,8 +277,7 @@ router.post('/chat', async (req: AuthRequest, res: Response, next) => {
   try {
     const { message, history = [] } = req.body;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+    const apiKey = getAiKey();
 
     const workspaceStats = await Promise.all([
       prisma.lead.count({ where: { workspaceId: req.user!.workspaceId, status: 'OPEN' } }),
@@ -263,7 +286,7 @@ router.post('/chat', async (req: AuthRequest, res: Response, next) => {
       prisma.task.count({ where: { assignedTo: { workspaceId: req.user!.workspaceId }, status: 'PENDING' } }),
     ]);
 
-    const systemPrompt = `Você é o Copilot, assistente IA integrado no CRM KommoCRM. Ajuda os utilizadores a gerir o seu negócio e responder perguntas sobre o sistema.
+    const systemPrompt = `Você é o Copilot, assistente IA integrado no CRM M.E.T.A. Ajuda os utilizadores a gerir o seu negócio e responder perguntas sobre o sistema.
 
 Dados actuais do workspace:
 - Leads abertos: ${workspaceStats[0]}
@@ -273,27 +296,13 @@ Dados actuais do workspace:
 
 Responde em Português de Moçambique. Seja conciso, prático e amigável.`;
 
-    const res2 = await fetch(AI_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [
-          ...history.map((h: any) => ({ role: h.role, content: h.content })),
-          { role: 'user', content: message },
-        ],
-      }),
-    });
+    const messages = [
+      ...history.map((h: any) => ({ role: h.role, content: h.content })),
+      { role: 'user' as const, content: message },
+    ];
 
-    if (!res2.ok) throw new AppError('Erro na API de IA', 500);
-    const data = await res2.json();
-    res.json({ reply: data.content[0]?.text || '' });
+    const reply = await callGroq(systemPrompt, messages, apiKey, 1024);
+    res.json({ reply });
   } catch (e) { next(e); }
 });
 
@@ -302,8 +311,7 @@ Responde em Português de Moçambique. Seja conciso, prático e amigável.`;
 router.post('/summarize-conversation', async (req: AuthRequest, res: Response, next) => {
   try {
     const { contactId, leadId } = req.body;
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new AppError('API key de IA nao configurada', 500);
+    const apiKey = getAiKey();
 
     const where: any = { isInternal: false };
     if (contactId) where.contactId = contactId;
@@ -324,7 +332,7 @@ router.post('/summarize-conversation', async (req: AuthRequest, res: Response, n
       `[${m.direction === 'INBOUND' ? 'Cliente' : 'Agente'} - ${m.channel}]: ${m.content}`
     ).join('\n');
 
-    const summary = await callClaude(
+    const summary = await callGroq(
       `Você é um assistente CRM. Resume conversas em Português de Moçambique de forma clara e prática.`,
       `Resume esta conversa em 3-5 frases. Inclui: 1) tópicos principais 2) próximos passos pendentes 3) sentimento do cliente.
 
@@ -344,8 +352,7 @@ router.post('/agent-reply', async (req: AuthRequest, res: Response, next) => {
   try {
     const { leadId, incomingMessage } = req.body;
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new AppError('API key de IA não configurada', 500);
+    const apiKey = getAiKey();
 
     const lead = await getLeadContext(leadId, req.user!.workspaceId);
     if (!lead) throw new AppError('Lead não encontrado', 404);
@@ -356,32 +363,32 @@ router.post('/agent-reply', async (req: AuthRequest, res: Response, next) => {
       .reverse()
       .slice(-10)
       .map((m) => ({
-        role: m.direction === 'INBOUND' ? 'user' : 'assistant',
+        role: (m.direction === 'INBOUND' ? 'user' : 'assistant') as 'user' | 'assistant',
         content: m.content,
       }));
 
-    const res2 = await fetch(AI_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_tokens: 300,
-        system: `Você é o assistente virtual de ${workspace?.name}. Responde a clientes potenciais de forma profissional, amigável e concisa. Qualifica leads e agenda reuniões quando adequado. Responde em Português de Moçambique. Não revelar que é IA a menos que perguntado directamente.`,
-        messages: [
-          ...history,
-          { role: 'user', content: incomingMessage },
-        ],
-      }),
-    });
+    const messages = [...history, { role: 'user' as const, content: incomingMessage }];
 
-    if (!res2.ok) throw new AppError('Erro no agente IA', 500);
-    const data = await res2.json();
-    res.json({ reply: data.content[0]?.text || '' });
+    const reply = await callGroq(
+      `Você é o assistente virtual de ${workspace?.name}. Responde a clientes potenciais de forma profissional, amigável e concisa. Qualifica leads e agenda reuniões quando adequado. Responde em Português de Moçambique. Não revelar que é IA a menos que perguntado directamente.`,
+      messages,
+      apiKey,
+      300,
+    );
+    res.json({ reply });
   } catch (e) { next(e); }
+});
+
+// ── GET /api/ai/status ────────────────────────────────
+// Diagnóstico: confirma se a chave está configurada e qual o modelo activo.
+router.get('/status', (_req: AuthRequest, res: Response) => {
+  const hasKey = !!(process.env.GROQ_API_KEY || process.env.ANTHROPIC_API_KEY);
+  res.json({
+    provider: 'groq',
+    model: AI_MODEL,
+    configured: hasKey,
+    usingFallbackKey: !process.env.GROQ_API_KEY && !!process.env.ANTHROPIC_API_KEY,
+  });
 });
 
 export default router;
