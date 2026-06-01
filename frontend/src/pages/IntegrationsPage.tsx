@@ -187,6 +187,10 @@ function ConfigModal({
                     {f.label}{f.required && ' *'}
                   </label>
                   <input
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
                     type={f.type === 'password' ? 'password' : f.type === 'number' ? 'number' : 'text'}
                     value={creds[f.key] || ''}
                     onChange={(e) => setCreds({ ...creds, [f.key]: e.target.value })}
@@ -500,11 +504,11 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
             </p>
             <div>
               <label className="block text-sm font-medium mb-1">URL do servidor *</label>
-              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="input-base" placeholder="https://evolution-meta.yq6lij.easypanel.host" />
+              <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="input-base" placeholder="https://evolution-meta.yq6lij.easypanel.host" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">API Key *</label>
-              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="input-base" placeholder="API key do Evolution" />
+              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="input-base" placeholder="API key do Evolution" autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
             </div>
             <div className="flex gap-2 mt-2">
               <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Cancelar</button>
