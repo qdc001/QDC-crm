@@ -55,11 +55,11 @@ async function sendWhatsAppOut(workspaceId: string, phone: string, content: stri
         let body: any = { number: destination };
 
         if (type === 'AUDIO' && mediaUrl) {
-          // Endpoint dedicado para áudio (converte para opus aceito pelo WhatsApp)
+          // Endpoint dedicado para audio (converte para opus aceito pelo WhatsApp)
           path = `/message/sendWhatsAppAudio/${creds.instanceName}`;
           body.audio = mediaUrl;
         } else if (type !== 'TEXT' && mediaUrl) {
-          // Mídia (imagem/vídeo/documento)
+          // Mídia (imagem/video/documento)
           path = `/message/sendMedia/${creds.instanceName}`;
           body.mediatype = type === 'IMAGE' ? 'image' : type === 'VIDEO' ? 'video' : 'document';
           body.media = mediaUrl;
@@ -292,8 +292,8 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { content, channel, contactId, leadId, type, direction, mediaUrl, mediaType, replyToId, isInternal, fileName } = req.body;
-    if (!content) throw new AppError('Conteudo obrigatorio', 400);
-    if (!channel) throw new AppError('Canal obrigatorio', 400);
+    if (!content) throw new AppError('Conteudo obrigatório', 400);
+    if (!channel) throw new AppError('Canal obrigatório', 400);
 
     let externalId: string | undefined;
     let status = 'PENDING';
@@ -378,14 +378,14 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     const { content } = req.body;
-    if (!content) throw new AppError('Conteudo obrigatorio', 400);
+    if (!content) throw new AppError('Conteudo obrigatório', 400);
     const existing = await prisma.message.findUnique({
       where: { id: req.params.id },
       include: { contact: { select: { whatsapp: true, phone: true } } },
     });
-    if (!existing) throw new AppError('Mensagem nao encontrada', 404);
+    if (!existing) throw new AppError('Mensagem não encontrada', 404);
     if (existing.sentById !== req.user!.id) {
-      throw new AppError('So podes editar mensagens que enviaste', 403);
+      throw new AppError('Só podes editar mensagens que enviaste', 403);
     }
 
     // Tentar editar no canal externo (WhatsApp via Evolution)
@@ -614,9 +614,9 @@ router.delete('/conversation', async (req: AuthRequest, res: Response, next) => 
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     const existing = await prisma.message.findUnique({ where: { id: req.params.id } });
-    if (!existing) throw new AppError('Mensagem nao encontrada', 404);
+    if (!existing) throw new AppError('Mensagem não encontrada', 404);
     if (existing.sentById !== req.user!.id) {
-      throw new AppError('So podes eliminar mensagens que enviaste', 403);
+      throw new AppError('Só podes eliminar mensagens que enviaste', 403);
     }
     await prisma.message.delete({ where: { id: req.params.id } });
     res.json({ message: 'Mensagem eliminada' });

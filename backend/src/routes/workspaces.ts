@@ -13,7 +13,7 @@ router.get('/me', async (req: AuthRequest, res: Response, next) => {
       where: { id: req.user!.workspaceId },
       include: { _count: { select: { users: true, leads: true, contacts: true } } },
     });
-    if (!workspace) throw new AppError('Workspace nao encontrada', 404);
+    if (!workspace) throw new AppError('Workspace não encontrada', 404);
     res.json(workspace);
   } catch (e) { next(e); }
 });

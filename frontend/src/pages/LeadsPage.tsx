@@ -67,7 +67,7 @@ function AddLeadFromListModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !pipelineId || !stageId) {
-      toast.error('Preenche titulo, pipeline e etapa');
+      toast.error('Preenche título, pipeline e etapa');
       return;
     }
     setLoading(true);
@@ -109,7 +109,7 @@ function AddLeadFromListModal({
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Titulo *</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Título *</label>
             <input
               autoFocus
               value={title}
@@ -155,7 +155,7 @@ function AddLeadFromListModal({
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Responsavel</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Responsável</label>
             <select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)} className="input-base">
               <option value="">— Sem atribuir —</option>
               {users.map((u) => (
@@ -179,7 +179,7 @@ function AddLeadFromListModal({
   );
 }
 
-// ====== Pagina principal ======
+// ====== Página principal ======
 export default function LeadsPage() {
   const navigate = useNavigate();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
@@ -226,7 +226,7 @@ export default function LeadsPage() {
     setSearch(globalSearchQuery || '');
   }, [globalSearchQuery]);
 
-  // Carregar pipelines e users (independentes para uma falha nao impedir a outra)
+  // Carregar pipelines e users (independentes para uma falha não impedir a outra)
   useEffect(() => {
     api.get('/pipelines')
       .then(({ data }) => setPipelines(Array.isArray(data) ? data : []))
@@ -250,7 +250,7 @@ export default function LeadsPage() {
     setStageId('');
   }, [pipelineId]);
 
-  // Reset pagina quando muda filtros
+  // Reset página quando muda filtros
   useEffect(() => {
     setPage(1);
   }, [search, pipelineId, stageId, status, priority, assignedToId]);
@@ -270,7 +270,7 @@ export default function LeadsPage() {
     api.get(`/leads?${params.toString()}`)
       .then(({ data }) => {
         let list: Lead[] = data.leads || [];
-        // Prioridade: filtragem cliente (backend nao suporta)
+        // Prioridade: filtragem cliente (backend não suporta)
         if (priority) list = list.filter((l) => l.priority === priority);
         setLeads(list);
         setTotal(data.total || 0);
@@ -410,7 +410,7 @@ export default function LeadsPage() {
             disabled={syncing}
             className="btn py-2 px-3"
             style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
-            title="Corrigir estados que nao correspondem a etapa"
+            title="Corrigir estados que não correspondem a etapa"
           >
             {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             Sincronizar estados
@@ -456,7 +456,7 @@ export default function LeadsPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Pesquisar por titulo..."
+            placeholder="Pesquisar por título..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
             className="input-base"
             style={{ paddingLeft: 32 }}
           />
@@ -499,7 +499,7 @@ export default function LeadsPage() {
         </select>
 
         <select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)} className="input-base" style={{ width: 'auto', minWidth: 140 }}>
-          <option value="">Todos os responsaveis</option>
+          <option value="">Todos os responsáveis</option>
           {users.map((u) => (
             <option key={u.id} value={u.id}>{u.name}</option>
           ))}
@@ -554,7 +554,7 @@ export default function LeadsPage() {
                 </th>
                 <th className="text-left px-3 py-2 font-medium" style={{ color: 'var(--text-secondary)' }}>
                   <button onClick={() => toggleSort('title')} className="flex items-center gap-1 text-xs uppercase">
-                    Titulo {sortIcon('title')}
+                    Título {sortIcon('title')}
                   </button>
                 </th>
                 <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>
@@ -575,7 +575,7 @@ export default function LeadsPage() {
                   Prioridade
                 </th>
                 <th className="text-left px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>
-                  Responsavel
+                  Responsável
                 </th>
                 <th className="text-left px-3 py-2 font-medium" style={{ color: 'var(--text-secondary)' }}>
                   <button onClick={() => toggleSort('createdAt')} className="flex items-center gap-1 text-xs uppercase">
@@ -583,7 +583,7 @@ export default function LeadsPage() {
                   </button>
                 </th>
                 <th className="text-right px-3 py-2 text-xs font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>
-                  Accoes
+                  Acções
                 </th>
               </tr>
             </thead>
@@ -686,7 +686,7 @@ export default function LeadsPage() {
       {total > limit && (
         <div className="flex items-center justify-between p-3" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
           <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            Pagina {page} de {totalPages} · {total} leads
+            Página {page} de {totalPages} · {total} leads
           </span>
           <div className="flex items-center gap-2">
             <button

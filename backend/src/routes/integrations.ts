@@ -54,7 +54,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
     const integration = await prisma.integration.findFirst({
       where: { id: req.params.id, workspaceId: req.user!.workspaceId },
     });
-    if (!integration) throw new AppError('Integracao nao encontrada', 404);
+    if (!integration) throw new AppError('Integração não encontrada', 404);
     // Nunca devolver credenciais ao cliente
     res.json({ ...integration, credentials: integration.credentials ? { configured: true } : null });
   } catch (e) { next(e); }
@@ -64,7 +64,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { type, name, credentials, settings, isActive } = req.body;
-    if (!type || !name) throw new AppError('Tipo e nome obrigatorios', 400);
+    if (!type || !name) throw new AppError('Tipo e nome obrigatórios', 400);
     const integration = await prisma.integration.create({
       data: {
         type, name,
@@ -99,13 +99,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
     await prisma.integration.delete({ where: { id: req.params.id } });
-    res.json({ message: 'Integracao eliminada' });
+    res.json({ message: 'Integração eliminada' });
   } catch (e) { next(e); }
 });
 
-// =============== Envio de mensagens via integracoes ===============
+// =============== Envio de mensagens via integrações ===============
 
-// Helper: encontrar integracao activa de um tipo
+// Helper: encontrar integração activa de um tipo
 async function findActiveIntegration(workspaceId: string, type: string) {
   return prisma.integration.findFirst({
     where: { workspaceId, type: type as any, isActive: true },
@@ -117,12 +117,12 @@ async function findActiveIntegration(workspaceId: string, type: string) {
 router.post('/whatsapp-cloud/send', async (req: AuthRequest, res: Response, next) => {
   try {
     const { to, message, contactId, leadId } = req.body;
-    if (!to || !message) throw new AppError('to e message obrigatorios', 400);
+    if (!to || !message) throw new AppError('to e message obrigatórios', 400);
 
     const integration = await findActiveIntegration(req.user!.workspaceId, 'WHATSAPP');
     const creds: any = getCreds(integration);
     if (!creds.accessToken || !creds.phoneNumberId) {
-      throw new AppError('Configura WhatsApp Cloud nas Integracoes (accessToken + phoneNumberId)', 400);
+      throw new AppError('Configura WhatsApp Cloud nas Integrações (accessToken + phoneNumberId)', 400);
     }
 
     const url = `https://graph.facebook.com/v20.0/${creds.phoneNumberId}/messages`;
@@ -636,10 +636,10 @@ router.post('/evolution/sync-chats', async (req: AuthRequest, res: Response, nex
                 } else if (unwrapped.videoMessage || msg.videoMessage) {
                   msgType = 'VIDEO';
                   const vm = unwrapped.videoMessage || msg.videoMessage;
-                  content = vm?.caption || '[Vídeo]';
-                  // Baixar vídeo é caro — para já só imagens. Mantemos o tipo.
+                  content = vm?.caption || '[Video]';
+                  // Baixar video é caro — para já só imagens. Mantemos o tipo.
                 } else if (unwrapped.audioMessage || msg.audioMessage) {
-                  msgType = 'AUDIO'; content = '[Áudio]';
+                  msgType = 'AUDIO'; content = '[Audio]';
                 } else if (unwrapped.documentMessage || msg.documentMessage) {
                   msgType = 'DOCUMENT';
                   const dm = unwrapped.documentMessage || msg.documentMessage;
@@ -799,8 +799,8 @@ export async function applyEvoContactToCrm(
     current === 'Contacto WhatsApp' ||
     (!!ownerName && current.toLowerCase() === String(ownerName).toLowerCase());
 
-  if (!looksLikePlaceholder && !opts.force) return { updated: false, reason: 'ja tem nome editado' };
-  if (current === best) return { updated: false, reason: 'sem mudanca' };
+  if (!looksLikePlaceholder && !opts.force) return { updated: false, reason: 'já tem nome editado' };
+  if (current === best) return { updated: false, reason: 'sem mudança' };
 
   await prismaClient.contact.update({ where: { id: contact.id }, data: { firstName: best } });
   return { updated: true };
@@ -994,10 +994,31 @@ router.post('/evolution/disconnect', async (req: AuthRequest, res: Response, nex
     if (!integration) return res.json({ message: 'Não havia ligação' });
     const creds: any = getCreds(integration);
     if (creds.instanceName) {
-      try { await evolutionFetch(creds, `/instance/logout/${creds.instanceName}`, { method: 'DELETE' }); } catch {}
+      // Evolution v2: logout via DELETE; algumas builds aceitam apenas POST, por isso tentamos os dois.
+      try {
+        await evolutionFetch(creds, `/instance/logout/${creds.instanceName}`, { method: 'DELETE' });
+      } catch (e: any) {
+        console.error('Evolution logout (DELETE) falhou:', e?.message);
+        try { await evolutionFetch(creds, `/instance/logout/${creds.instanceName}`, { method: 'POST' }); }
+        catch (e2: any) { console.error('Evolution logout (POST) falhou:', e2?.message); }
+      }
     }
     await prisma.integration.update({ where: { id: integration.id }, data: { isActive: false } });
-    res.json({ message: 'Desligado' });
+
+    // Confirmar o estado real. Em Evolution < v2.3.7 ha um bug de reconexao automática
+    // que pode repor a sessão em 'open' logo após o logout; reportamos isso ao cliente
+    // em vez de dizer "Desligado" sem ser verdade.
+    let state = 'unknown';
+    if (creds.instanceName) {
+      try {
+        const data = await evolutionFetch(creds, `/instance/connectionState/${creds.instanceName}`);
+        state = data?.instance?.state || data?.state || 'unknown';
+      } catch { /* a instancia pode já não responder, o que e bom sinal */ }
+    }
+    res.json({
+      message: state === 'open' ? 'O pedido foi enviado, mas a Evolution ainda reporta a sessão ligada.' : 'Desligado',
+      state,
+    });
   } catch (e) { next(e); }
 });
 
@@ -1022,14 +1043,14 @@ router.delete('/evolution', async (req: AuthRequest, res: Response, next) => {
 router.post('/evolution/send', async (req: AuthRequest, res: Response, next) => {
   try {
     const { to, message, contactId, leadId } = req.body;
-    if (!to || !message) throw new AppError('to e message obrigatorios', 400);
+    if (!to || !message) throw new AppError('to e message obrigatórios', 400);
 
     const integration = await prisma.integration.findFirst({
       where: { workspaceId: req.user!.workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
     });
     const creds: any = getCreds(integration);
     if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
-      throw new AppError('Configura Evolution nas Integracoes (baseUrl + apiKey + instanceName)', 400);
+      throw new AppError('Configura Evolution nas Integrações (baseUrl + apiKey + instanceName)', 400);
     }
 
     const url = `${creds.baseUrl.replace(/\/$/, '')}/message/sendText/${creds.instanceName}`;
@@ -1066,12 +1087,12 @@ router.post('/email/send', async (req: AuthRequest, res: Response, next) => {
   try {
     const { to, subject, html, text, contactId, leadId } = req.body;
     if (!to || !subject || (!html && !text)) {
-      throw new AppError('to, subject e (html ou text) obrigatorios', 400);
+      throw new AppError('to, subject e (html ou text) obrigatórios', 400);
     }
     const integration = await findActiveIntegration(req.user!.workspaceId, 'EMAIL_SMTP');
     const creds: any = getCreds(integration);
     if (!creds.host || !creds.user || !creds.pass) {
-      throw new AppError('Configura SMTP nas Integracoes (host + user + pass)', 400);
+      throw new AppError('Configura SMTP nas Integrações (host + user + pass)', 400);
     }
     const transporter = nodemailer.createTransport({
       host: creds.host,

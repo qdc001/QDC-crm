@@ -25,7 +25,7 @@ const STATUS_OPTIONS = [
   { v: 'ONLINE', label: 'Online', color: '#10B981' },
   { v: 'AWAY', label: 'Ausente', color: '#F59E0B' },
   { v: 'BUSY', label: 'Ocupado', color: '#EF4444' },
-  { v: 'DND', label: 'Nao incomodar', color: '#6B7280' },
+  { v: 'DND', label: 'Não incomodar', color: '#6B7280' },
   { v: 'OFFLINE', label: 'Offline', color: '#94A3B8' },
 ];
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -46,7 +46,7 @@ export default function SettingsPage() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Preferencias
+  // Preferências
   const [datePref, setDatePref] = useState(getDateFormatPref());
 
   // Password
@@ -102,7 +102,7 @@ export default function SettingsPage() {
   const [verifyCode, setVerifyCode] = useState('');
   const [disablePwd, setDisablePwd] = useState('');
 
-  // Notificacoes email
+  // Notificações email
   const [emailPrefs, setEmailPrefs] = useState<Record<string, boolean>>(
     ((user as any)?.emailPreferences as Record<string, boolean>) || {
       newLead: true, taskOverdue: true, newMessage: false, mention: true,
@@ -204,20 +204,20 @@ export default function SettingsPage() {
   };
 
   const revokeSession = async (id: string) => {
-    if (!confirm('Terminar esta sessao?')) return;
+    if (!confirm('Terminar esta sessão?')) return;
     try {
       await api.delete(`/users/me/sessions/${id}`);
       reloadSessions();
-      toast.success('Sessao terminada');
+      toast.success('Sessão terminada');
     } catch { toast.error('Erro'); }
   };
 
   const revokeOthers = async () => {
-    if (!confirm('Terminar todas as outras sessoes?')) return;
+    if (!confirm('Terminar todas as outras sessões?')) return;
     try {
       await api.post('/users/me/sessions/revoke-others');
       reloadSessions();
-      toast.success('Outras sessoes terminadas');
+      toast.success('Outras sessões terminadas');
     } catch { toast.error('Erro'); }
   };
 
@@ -225,7 +225,7 @@ export default function SettingsPage() {
     try {
       const { data } = await api.patch('/users/me', { emailPreferences: emailPrefs });
       setEmailPrefs(data.emailPreferences as any);
-      toast.success('Preferencias guardadas');
+      toast.success('Preferências guardadas');
     } catch { toast.error('Erro'); }
   };
 
@@ -296,7 +296,7 @@ export default function SettingsPage() {
   };
 
   const savePassword = async () => {
-    if (newPwd !== confirmPwd) { toast.error('Passwords nao coincidem'); return; }
+    if (newPwd !== confirmPwd) { toast.error('Passwords não coincidem'); return; }
     if (newPwd.length < 6) { toast.error('Password tem de ter pelo menos 6 caracteres'); return; }
     setSavingPwd(true);
     try {
@@ -360,9 +360,9 @@ export default function SettingsPage() {
 
   const tabs = [
     { v: 'profile' as const, label: 'Perfil', icon: UserIcon },
-    { v: 'preferences' as const, label: 'Preferencias', icon: Palette },
-    { v: 'security' as const, label: 'Seguranca', icon: Shield },
-    { v: 'notifications' as const, label: 'Notificacoes', icon: Bell },
+    { v: 'preferences' as const, label: 'Preferências', icon: Palette },
+    { v: 'security' as const, label: 'Segurança', icon: Shield },
+    { v: 'notifications' as const, label: 'Notificações', icon: Bell },
     ...(isAdminOrOwner ? [{ v: 'workspace' as const, label: 'Workspace', icon: Building2 }] : []),
     ...(isAdminOrOwner ? [{ v: 'emailTemplates' as const, label: 'Templates email', icon: FileTextIcon }] : []),
     ...(isAdminOrOwner ? [{ v: 'audit' as const, label: 'Auditoria', icon: History }] : []),
@@ -470,7 +470,7 @@ export default function SettingsPage() {
             <div className="flex gap-2">
               <button onClick={() => changeLang('pt')} className="btn py-2 px-3"
                 style={{ background: lang === 'pt' ? 'var(--primary)' : 'var(--surface-3)', color: lang === 'pt' ? '#fff' : 'var(--text-primary)' }}>
-                Portugues (MZ)
+                Português (MZ)
               </button>
               <button onClick={() => changeLang('en')} className="btn py-2 px-3"
                 style={{ background: lang === 'en' ? 'var(--primary)' : 'var(--surface-3)', color: lang === 'en' ? '#fff' : 'var(--text-primary)' }}>
@@ -518,7 +518,7 @@ export default function SettingsPage() {
 
           {/* 2FA */}
           <div className="card p-6">
-            <h3 className="font-semibold mb-3 flex items-center gap-2"><Shield size={16} /> Autenticacao de 2 factores (2FA)</h3>
+            <h3 className="font-semibold mb-3 flex items-center gap-2"><Shield size={16} /> Autenticação de 2 factores (2FA)</h3>
             {twoFAEnabled ? (
               <div className="space-y-3">
                 <div className="p-3 rounded flex items-center gap-2" style={{ background: '#D1FAE5', color: '#065F46' }}>
@@ -536,7 +536,7 @@ export default function SettingsPage() {
             ) : !setupSecret ? (
               <div>
                 <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
-                  Adiciona uma camada extra de seguranca. Vais precisar de uma app autenticadora (Google Authenticator, Authy, 1Password, etc.).
+                  Adiciona uma camada extra de segurança. Vais precisar de uma app autenticadora (Google Authenticator, Authy, 1Password, etc.).
                 </p>
                 <button onClick={startSetup} className="btn btn-primary py-2 px-3">
                   <Smartphone size={14} /> Activar 2FA
@@ -545,17 +545,17 @@ export default function SettingsPage() {
             ) : (
               <div className="space-y-3 max-w-md">
                 <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  Abre a tua app autenticadora e adiciona esta conta. Podes escanear o QR code ou inserir o codigo manualmente.
+                  Abre a tua app autenticadora e adiciona esta conta. Podes escanear o QR code ou inserir o código manualmente.
                 </p>
                 <div className="flex justify-center p-4 rounded" style={{ background: '#fff' }}>
                   <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(setupOtpUrl)}`} alt="QR" />
                 </div>
                 <div>
-                  <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Codigo manual (caso nao consigas usar QR):</p>
+                  <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Código manual (caso não consigas usar QR):</p>
                   <code className="text-xs p-2 rounded block break-all" style={{ background: 'var(--surface-3)' }}>{setupSecret}</code>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Insere o codigo de 6 digitos da app</label>
+                  <label className="block text-sm font-medium mb-1">Insere o código de 6 digitos da app</label>
                   <input value={verifyCode} onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="input-base text-center" style={{ letterSpacing: 4, fontSize: 18 }} placeholder="123456" />
                 </div>
                 <div className="flex gap-2">
@@ -566,10 +566,10 @@ export default function SettingsPage() {
             )}
           </div>
 
-          {/* Sessoes */}
+          {/* Sessões */}
           <div className="card p-6">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold flex items-center gap-2"><Smartphone size={16} /> Sessoes activas</h3>
+              <h3 className="font-semibold flex items-center gap-2"><Smartphone size={16} /> Sessões activas</h3>
               <button onClick={revokeOthers} className="text-xs px-2 py-1 rounded font-medium" style={{ background: '#FEF2F2', color: '#EF4444' }}>
                 Terminar todas as outras
               </button>
@@ -577,7 +577,7 @@ export default function SettingsPage() {
             {loadingSessions ? (
               <div className="flex justify-center py-4"><Loader2 className="animate-spin" /></div>
             ) : sessions.length === 0 ? (
-              <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>Sem sessoes activas</p>
+              <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>Sem sessões activas</p>
             ) : (
               <div className="space-y-2">
                 {sessions.map((s) => (
@@ -586,10 +586,10 @@ export default function SettingsPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                         {s.device || 'Dispositivo desconhecido'}
-                        {s.isCurrent && <span className="ml-2 text-xs px-2 py-0.5 rounded" style={{ background: '#D1FAE5', color: '#065F46' }}>Esta sessao</span>}
+                        {s.isCurrent && <span className="ml-2 text-xs px-2 py-0.5 rounded" style={{ background: '#D1FAE5', color: '#065F46' }}>Esta sessão</span>}
                       </p>
                       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {s.ip} · Ultimo uso {new Date(s.lastUsedAt).toLocaleString('pt-PT')}
+                        {s.ip} · Último uso {new Date(s.lastUsedAt).toLocaleString('pt-PT')}
                       </p>
                     </div>
                     {!s.isCurrent && (
@@ -607,15 +607,15 @@ export default function SettingsPage() {
 
       {tab === 'notifications' && (
         <div className="card p-6 space-y-4">
-          <h3 className="font-semibold flex items-center gap-2"><Mail size={16} /> Notificacoes por email</h3>
+          <h3 className="font-semibold flex items-center gap-2"><Mail size={16} /> Notificações por email</h3>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Escolhe quando receber emails. Requer integracao SMTP configurada nas Integracoes para os emails serem enviados.
+            Escolhe quando receber emails. Requer integração SMTP configurada nas Integrações para os emails serem enviados.
           </p>
           {[
             { k: 'newLead', label: 'Novo lead atribuido a mim' },
             { k: 'taskOverdue', label: 'Tarefa minha em atraso' },
             { k: 'newMessage', label: 'Nova mensagem em conversa minha' },
-            { k: 'mention', label: 'Mencao em nota interna' },
+            { k: 'mention', label: 'Menção em nota interna' },
           ].map((n) => (
             <label key={n.k} className="flex items-center gap-3 p-3 rounded cursor-pointer" style={{ background: 'var(--surface-2)' }}>
               <input type="checkbox" checked={!!emailPrefs[n.k]} onChange={(e) => setEmailPrefs({ ...emailPrefs, [n.k]: e.target.checked })} />
@@ -623,7 +623,7 @@ export default function SettingsPage() {
             </label>
           ))}
           <button onClick={saveEmailPrefs} className="btn btn-primary py-2 px-4">
-            <Save size={14} /> Guardar preferencias
+            <Save size={14} /> Guardar preferências
           </button>
         </div>
       )}
@@ -641,7 +641,7 @@ export default function SettingsPage() {
                   t.type === 'welcome' ? 'Boas-vindas' :
                   t.type === 'password_reset' ? 'Reposicao de password' :
                   t.type === 'invite' ? 'Convite de membro' :
-                  t.type === 'csat' ? 'Pedido de avaliacao (CSAT)' :
+                  t.type === 'csat' ? 'Pedido de avaliação (CSAT)' :
                   t.type === 'lead_assigned' ? 'Lead atribuido' :
                   t.type === 'task_overdue' ? 'Tarefa em atraso' : t.type
                 }</span>
@@ -738,7 +738,7 @@ export default function SettingsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Mes inicio do ano fiscal</label>
+              <label className="block text-sm font-medium mb-1">Mês início do ano fiscal</label>
               <select value={wsFiscalMonth} onChange={(e) => setWsFiscalMonth(Number(e.target.value))} className="input-base">
                 {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
               </select>
@@ -990,7 +990,7 @@ export default function SettingsPage() {
         <div className="card p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold flex items-center gap-2"><History size={16} /> Logs de auditoria</h3>
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Ultimas 200 alteracoes</span>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Últimas 200 alterações</span>
           </div>
           {loadingLogs ? (
             <div className="flex justify-center py-8"><Loader2 className="animate-spin" /></div>

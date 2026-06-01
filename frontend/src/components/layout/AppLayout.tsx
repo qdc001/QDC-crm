@@ -84,7 +84,7 @@ export default function AppLayout() {
     };
   }, [updateWorkspace]);
 
-  // Pesquisa global (partilhada via store para destacar tambem no kanban)
+  // Pesquisa global (partilhada via store para destacar também no kanban)
   const { globalSearchQuery: query, setGlobalSearchQuery: setQuery } = useUIStore();
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<{ leads: Lead[]; contacts: Contact[] }>({ leads: [], contacts: [] });
@@ -300,7 +300,7 @@ export default function AppLayout() {
                   setShowResults(true);
                 }}
                 onFocus={() => setShowResults(true)}
-                placeholder="Pesquisar leads, contactos..."
+                placeholder="Pesquisar leads, contactos..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 className="flex-1 bg-transparent outline-none"
                 style={{ color: 'var(--text-primary)' }}
               />

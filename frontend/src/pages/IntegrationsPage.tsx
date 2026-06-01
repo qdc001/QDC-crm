@@ -130,7 +130,7 @@ function ConfigModal({
     // validar required
     for (const f of def.fields) {
       if (f.required && !creds[f.key]) {
-        toast.error(`${f.label} obrigatorio`);
+        toast.error(`${f.label} obrigatório`);
         return;
       }
     }
@@ -150,7 +150,7 @@ function ConfigModal({
           isActive: true,
         });
       }
-      toast.success('Integracao guardada');
+      toast.success('Integração guardada');
       onSaved();
       onClose();
     } catch (err: any) {
@@ -221,7 +221,7 @@ function TestSendModal({
   const [loading, setLoading] = useState(false);
 
   const handleSend = async () => {
-    if (!to || !message) { toast.error('Destinatario e mensagem obrigatorios'); return; }
+    if (!to || !message) { toast.error('Destinatario e mensagem obrigatórios'); return; }
     setLoading(true);
     try {
       let endpoint = '';
@@ -690,7 +690,7 @@ export default function IntegrationsPage() {
   };
 
   const handleDelete = async (item: IntegrationItem) => {
-    if (!confirm('Eliminar esta integracao?')) return;
+    if (!confirm('Eliminar esta integração?')) return;
     try {
       await api.delete(`/integrations/${item.id}`);
       toast.success('Eliminada');
@@ -736,7 +736,7 @@ export default function IntegrationsPage() {
                         <CheckCircle2 size={11} /> {active ? 'Activa' : 'Desactivada'}
                       </span>
                     ) : (
-                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Nao configurada</span>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Não configurada</span>
                     )}
                   </div>
                 </div>
