@@ -444,6 +444,7 @@ export default function InboxPage() {
   // Composer
   const [draft, setDraft] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
+  const [transcribingId, setTranscribingId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [isInternalNote, setIsInternalNote] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -1013,6 +1014,19 @@ export default function InboxPage() {
         setConversations((prev) => prev.map((c) => c.key === selected.key ? { ...c, lastMessage: data, total: c.total + 1 } : c));
       }
     } catch (err: any) { toast.error(err.response?.data?.message || 'Erro a enviar'); } finally { setSending(false); }
+  };
+
+  const transcribeAudio = async (msg: Message) => {
+    if (transcribingId) return;
+    setTranscribingId(msg.id);
+    try {
+      const { data } = await api.post(`/messages/${msg.id}/transcribe`);
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, transcription: data.transcription } : m)));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao transcrever');
+    } finally {
+      setTranscribingId(null);
+    }
   };
 
   // Gravação de audio
@@ -1698,7 +1712,23 @@ export default function InboxPage() {
                                   ) : (msg.type === 'VIDEO' || msg.mediaType?.startsWith('video/')) ? (
                                     <video src={msg.mediaUrl} controls className="rounded max-w-full" style={{ maxHeight: 240, maxWidth: 320 }} />
                                   ) : (msg.type === 'AUDIO' || msg.mediaType?.startsWith('audio/')) ? (
-                                    <audio src={msg.mediaUrl} controls style={{ maxWidth: 280 }} />
+                                    <div style={{ maxWidth: 280 }}>
+                                      <audio src={msg.mediaUrl} controls style={{ maxWidth: 280 }} />
+                                      {msg.transcription ? (
+                                        <p className="mt-1 text-xs italic" style={{ color: out ? 'rgba(255,255,255,0.85)' : 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+                                          "{msg.transcription}"
+                                        </p>
+                                      ) : (
+                                        <button
+                                          onClick={() => transcribeAudio(msg)}
+                                          disabled={transcribingId === msg.id}
+                                          className="mt-1 flex items-center gap-1 text-xs underline"
+                                          style={{ color: out ? 'rgba(255,255,255,0.85)' : 'var(--primary)' }}
+                                        >
+                                          {transcribingId === msg.id ? (<><Loader2 size={11} className="animate-spin" /> A transcrever...</>) : ('Transcrever audio')}
+                                        </button>
+                                      )}
+                                    </div>
                                   ) : (
                                     <div className="flex items-center gap-2 p-2 rounded" style={{ background: out ? 'rgba(255,255,255,0.15)' : 'var(--surface-2)' }}>
                                       <FileText size={20} style={{ color: out ? 'white' : 'var(--text-secondary)' }} />

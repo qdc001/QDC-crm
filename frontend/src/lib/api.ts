@@ -265,6 +265,7 @@ export interface Message {
   status: string;
   mediaUrl?: string;
   mediaType?: string;
+  transcription?: string;
   readAt?: string | null;
   editedAt?: string | null;
   isInternal?: boolean;
