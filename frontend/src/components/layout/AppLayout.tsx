@@ -180,9 +180,11 @@ export default function AppLayout() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 p-4 mb-2" style={{ minHeight: 64 }}>
-          <div className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm" style={{ background: 'var(--primary)' }}>
-            {workspace?.name?.[0]?.toUpperCase() || 'K'}
-          </div>
+          <img
+            src="/logo.png"
+            alt={workspace?.name || 'M.E.T.A'}
+            className="flex-shrink-0 w-8 h-8 rounded-lg object-cover"
+          />
           {sidebarOpen && (
             <div className="overflow-hidden">
               <p className="font-semibold text-sm text-white truncate" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>

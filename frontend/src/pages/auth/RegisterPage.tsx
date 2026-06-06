@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, GitBranch } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
@@ -30,9 +30,7 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center p-8" style={{ background: 'var(--surface-2)' }}>
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2 mb-8">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary)' }}>
-            <GitBranch size={18} className="text-white" />
-          </div>
+          <img src="/logo.png" alt="M.E.T.A" className="w-9 h-9 rounded-xl object-cover" />
           <span className="font-bold text-lg" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>M.E.T.A</span>
         </div>
 

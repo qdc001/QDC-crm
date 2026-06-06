@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, GitBranch } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
@@ -42,9 +42,7 @@ export default function LoginPage() {
       {/* Left - Branding */}
       <div className="hidden lg:flex flex-col justify-between w-1/2 p-12" style={{ background: 'var(--sidebar-bg)' }}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary)' }}>
-            <GitBranch size={20} className="text-white" />
-          </div>
+          <img src="/logo.png" alt="M.E.T.A" className="w-10 h-10 rounded-xl object-cover" />
           <span className="text-white text-xl font-bold" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>M.E.T.A</span>
         </div>
 
@@ -76,9 +74,7 @@ export default function LoginPage() {
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--primary)' }}>
-              <GitBranch size={16} className="text-white" />
-            </div>
+            <img src="/logo.png" alt="M.E.T.A" className="w-8 h-8 rounded-lg object-cover" />
             <span className="font-bold text-lg" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>M.E.T.A</span>
           </div>
 
