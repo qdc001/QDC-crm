@@ -64,7 +64,11 @@ const io = new SocketServer(httpServer, {
 app.set('trust proxy', true);
 
 // Global middleware
-app.use(helmet());
+// crossOriginResourcePolicy desactivado: o frontend corre num subdominio
+// diferente do backend (crm-crm-frontend vs crm-crm-backend). Com a politica
+// default 'same-origin', o navegador bloqueia imagens/audios/videos de
+// /uploads servidos pelo backend (ERR_BLOCKED_BY_RESPONSE.NotSameOrigin).
+app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
@@ -76,6 +80,11 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
   setHeaders: (res, filePath) => {
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=604800');
+    // Permitir que o frontend (subdominio diferente) carregue estes ficheiros
+    // em tags <img>, <audio>, <video>. Sem isto o Chrome devolve
+    // ERR_BLOCKED_BY_RESPONSE.NotSameOrigin.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
     // Forçar Content-Type para alguns formatos comuns
     const ext = filePath.split('.').pop()?.toLowerCase();
     const mimes: Record<string, string> = {
