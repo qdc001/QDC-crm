@@ -71,19 +71,43 @@ function absoluteUrl(req: Request, p: string): string {
 // Helper: baixa media da Evolution via base64 e guarda como ficheiro local
 async function fetchMediaFromEvolution(creds: any, baileysMessage: any, fallbackExt: string): Promise<string | null> {
   if (!creds?.baseUrl || !creds?.apiKey || !creds?.instanceName) return null;
-  try {
-    const res = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/chat/getBase64FromMediaMessage/${creds.instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
-      body: JSON.stringify({ message: { key: baileysMessage.key, message: baileysMessage.message } }),
-    });
-    if (!res.ok) {
-      console.error('getBase64FromMediaMessage failed:', await res.text());
-      return null;
+  const base = creds.baseUrl.replace(/\/$/, '');
+  // A Evolution v2.3.x mudou subtilmente o formato esperado. Tentamos quatro
+  // combinacoes de endpoint + payload, da preferida para a mais antiga. A
+  // primeira que devolver base64 ganha. Logging fica detalhado para o Easypanel.
+  const candidates: { url: string; body: any }[] = [
+    { url: `${base}/chat/getBase64FromMediaMessage/${creds.instanceName}`, body: { message: { key: baileysMessage.key }, convertToMp4: false } },
+    { url: `${base}/chat/getBase64FromMediaMessage/${creds.instanceName}`, body: { message: { key: baileysMessage.key, message: baileysMessage.message }, convertToMp4: false } },
+    { url: `${base}/chat/getBase64FromMediaMessage/${creds.instanceName}`, body: { message: baileysMessage, convertToMp4: false } },
+    { url: `${base}/chat/getMediaBase64FromMessage/${creds.instanceName}`, body: { message: { key: baileysMessage.key }, convertToMp4: false } },
+  ];
+  let data: any = null;
+  let lastErr = '';
+  for (const c of candidates) {
+    try {
+      const res = await fetch(c.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+        body: JSON.stringify(c.body),
+      });
+      if (!res.ok) {
+        lastErr = `HTTP ${res.status} em ${c.url} body=${JSON.stringify(c.body).slice(0, 80)}`;
+        continue;
+      }
+      const j = await res.json();
+      const b = j?.base64 || j?.media;
+      if (b && typeof b === 'string') { data = j; break; }
+      lastErr = `Resposta sem base64 em ${c.url}: ${JSON.stringify(j).slice(0, 120)}`;
+    } catch (e: any) {
+      lastErr = `Excepcao em ${c.url}: ${e.message}`;
     }
-    const data = await res.json();
-    const base64 = data?.base64 || data?.media || data;
-    if (!base64 || typeof base64 !== 'string') return null;
+  }
+  if (!data) {
+    console.error('Evolution media descarregar falhou apos 4 tentativas:', lastErr);
+    return null;
+  }
+  try {
+    const base64 = data.base64 || data.media;
     const mimeType: string = data?.mimetype || data?.mimeType || '';
     // Decidir extensão a partir do mime type (curto e seguro)
     const MIME_TO_EXT: Record<string, string> = {
