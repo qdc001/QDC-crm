@@ -27,11 +27,11 @@ const nodeStyle = (color: string, selected = false) => ({
 
 function TriggerNode({ data, selected }: NodeProps) {
   return (
-    <div style={nodeStyle('#6366F1', selected)}>
+    <div style={nodeStyle('#C8553D', selected)}>
       <Handle type="source" position={Position.Bottom} />
       <div className="flex items-center gap-2 mb-1">
         <span style={{ fontSize: 18 }}>⚡</span>
-        <span style={{ fontWeight: 600, color: '#6366F1', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em' }}>Trigger</span>
+        <span style={{ fontWeight: 600, color: '#C8553D', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em' }}>Trigger</span>
       </div>
       <p style={{ fontWeight: 500, color: '#0F172A', fontSize: 12 }}>{data.label || 'Início do fluxo'}</p>
     </div>
@@ -147,12 +147,12 @@ function EndNode({ selected }: NodeProps) {
 
 function AINode({ data, selected }: NodeProps) {
   return (
-    <div style={nodeStyle('#6366F1', selected)}>
+    <div style={nodeStyle('#C8553D', selected)}>
       <Handle type="target" position={Position.Top} />
       <Handle type="source" position={Position.Bottom} />
       <div className="flex items-center gap-2 mb-1">
         <span style={{ fontSize: 18 }}>🤖</span>
-        <span style={{ fontWeight: 600, color: '#6366F1', fontSize: 11, textTransform: 'uppercase' }}>Agente IA</span>
+        <span style={{ fontWeight: 600, color: '#C8553D', fontSize: 11, textTransform: 'uppercase' }}>Agente IA</span>
         {data.waitForReply && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#FEF3C7', color: '#B45309' }}>esperar resposta</span>}
       </div>
       <p style={{ color: '#0F172A', fontSize: 12, lineHeight: 1.4, wordBreak: 'break-word' }}>
@@ -369,7 +369,7 @@ const NODE_PALETTE: { type: ChatbotNodeType; label: string; icon: string; color:
   { type: 'subflow', label: 'Sub-fluxo', icon: '🔗', color: '#7C3AED' },
   { type: 'handoff', label: 'Handoff', icon: '🤝', color: '#FACC15' },
   { type: 'delay', label: 'Esperar', icon: '⏱️', color: '#8B5CF6' },
-  { type: 'ai', label: 'Agente IA', icon: '🤖', color: '#6366F1' },
+  { type: 'ai', label: 'Agente IA', icon: '🤖', color: '#C8553D' },
   { type: 'end', label: 'Fim', icon: '🏁', color: '#EF4444' },
 ];
 
@@ -1328,7 +1328,7 @@ function FlowSettingsModal({
                     key={d}
                     onClick={() => setBhWd(active ? bhWd.replace(String(d), '') : bhWd + String(d))}
                     className="text-xs px-2 py-1 rounded"
-                    style={{ background: active ? '#EEF2FF' : 'var(--surface-3)', color: active ? 'var(--primary)' : 'var(--text-muted)', fontWeight: active ? 600 : 400 }}
+                    style={{ background: active ? '#F6E3DC' : 'var(--surface-3)', color: active ? 'var(--primary)' : 'var(--text-muted)', fontWeight: active ? 600 : 400 }}
                   >
                     {labels[d]}
                   </button>
@@ -1599,11 +1599,11 @@ function ChatbotEditorInner({ flow, onClose, onSaved }: { flow: ChatbotFlow; onC
             <MiniMap
               nodeColor={(n) => {
                 const colors: Record<string, string> = {
-                  trigger: '#6366F1', message: '#0EA5E9', template: '#EC4899',
+                  trigger: '#C8553D', message: '#0EA5E9', template: '#EC4899',
                   media: '#06B6D4', buttons: '#F97316', list: '#0891B2',
                   condition: '#F59E0B', switch: '#D946EF',
                   action: '#10B981', handoff: '#FACC15', delay: '#8B5CF6',
-                  end: '#EF4444', ai: '#6366F1',
+                  end: '#EF4444', ai: '#C8553D',
                   set_var: '#84CC16', fetch_data: '#14B8A6', subflow: '#7C3AED',
                 };
                 return colors[n.type || ''] || '#94A3B8';
@@ -1806,11 +1806,11 @@ function HistoryModal({ flow, onClose }: { flow: ChatbotFlow; onClose: () => voi
 
 function nodeColor(t: string): string {
   const c: Record<string, string> = {
-    trigger: '#6366F1', message: '#0EA5E9', template: '#EC4899',
+    trigger: '#C8553D', message: '#0EA5E9', template: '#EC4899',
     media: '#06B6D4', buttons: '#F97316', list: '#0891B2',
     condition: '#F59E0B', switch: '#D946EF',
     action: '#10B981', handoff: '#A16207', delay: '#8B5CF6',
-    end: '#EF4444', ai: '#6366F1',
+    end: '#EF4444', ai: '#C8553D',
     set_var: '#84CC16', fetch_data: '#14B8A6', subflow: '#7C3AED',
   };
   return c[t] || '#64748B';
@@ -2004,7 +2004,7 @@ export default function ChatbotsPage() {
           {flows.map((bot) => (
             <div key={bot.id} className="card p-5">
               <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: bot.isActive ? '#EEF2FF' : 'var(--surface-3)' }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: bot.isActive ? '#F6E3DC' : 'var(--surface-3)' }}>
                   <Bot size={20} style={{ color: bot.isActive ? 'var(--primary)' : 'var(--text-muted)' }} />
                 </div>
                 <button

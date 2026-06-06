@@ -538,7 +538,7 @@ function AutomationEditor({ automation, onClose, onSaved }: {
           {/* TRIGGER */}
           <section className="card p-4">
             <div className="flex items-center gap-2 mb-3">
-              <Zap size={16} style={{ color: '#6366F1' }} />
+              <Zap size={16} style={{ color: '#C8553D' }} />
               <h3 className="font-bold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>QUANDO</h3>
               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Trigger que dispara a automação</span>
             </div>
@@ -820,7 +820,7 @@ function AutomationEditor({ automation, onClose, onSaved }: {
                         }}
                         className="text-xs px-2 py-1 rounded"
                         style={{
-                          background: active ? '#EEF2FF' : 'var(--surface-3)',
+                          background: active ? '#F6E3DC' : 'var(--surface-3)',
                           color: active ? 'var(--primary)' : 'var(--text-muted)',
                           fontWeight: active ? 600 : 400,
                         }}
@@ -1114,7 +1114,7 @@ export default function AutomationsPage() {
           {automations.map((a) => (
             <div key={a.id} className="card p-5">
               <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg" style={{ background: a.isActive ? '#EEF2FF' : 'var(--surface-3)' }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg" style={{ background: a.isActive ? '#F6E3DC' : 'var(--surface-3)' }}>
                   {triggerIcon(a.trigger.type)}
                 </div>
                 <button

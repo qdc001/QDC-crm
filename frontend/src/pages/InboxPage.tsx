@@ -35,7 +35,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   SMS: 'SMS', INTERNAL: 'Interno',
 };
 const CHANNEL_COLORS: Record<string, string> = {
-  WHATSAPP: '#25D366', EMAIL: '#6366F1', INSTAGRAM: '#E1306C',
+  WHATSAPP: '#25D366', EMAIL: '#C8553D', INSTAGRAM: '#E1306C',
   FACEBOOK: '#1877F2', TELEGRAM: '#0088CC', WEBCHAT: '#0EA5E9',
   SMS: '#F59E0B', INTERNAL: '#94A3B8',
 };
@@ -415,6 +415,7 @@ export default function InboxPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
   const { user, workspace } = useAuthStore();
+  const isAdmin = user?.role === 'OWNER' || user?.role === 'ADMIN';
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [convPage, setConvPage] = useState(1);
@@ -1576,10 +1577,14 @@ export default function InboxPage() {
                     <button onClick={() => setSoundEnabled(!soundEnabled)} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100 text-left">
                       {soundEnabled ? '🔊' : '🔇'} Som: {soundEnabled ? 'ON' : 'OFF'}
                     </button>
-                    <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
-                    <button onClick={() => { handleDeleteConversation(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-left" style={{ color: '#EF4444' }}>
-                      <Trash2 size={14} /> Eliminar conversa
-                    </button>
+                    {isAdmin && (
+                      <>
+                        <div className="my-1" style={{ borderTop: '1px solid var(--border)' }} />
+                        <button onClick={() => { handleDeleteConversation(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-red-50 text-left" style={{ color: '#EF4444' }}>
+                          <Trash2 size={14} /> Eliminar conversa
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1707,7 +1712,21 @@ export default function InboxPage() {
                                 <div className="mb-1">
                                   {(msg.type === 'IMAGE' || msg.mediaType?.startsWith('image/')) ? (
                                     <button onClick={() => setLightboxUrl(msg.mediaUrl!)} className="block">
-                                      <img src={msg.mediaUrl} alt={msg.content} className="rounded max-w-full cursor-pointer" style={{ maxHeight: 240 }} />
+                                      <img
+                                        src={msg.mediaUrl}
+                                        alt=""
+                                        className="rounded max-w-full cursor-pointer"
+                                        style={{ maxHeight: 240 }}
+                                        onError={(e) => {
+                                          const img = e.currentTarget;
+                                          img.style.display = 'none';
+                                          const fb = img.nextElementSibling as HTMLElement | null;
+                                          if (fb) fb.style.display = 'flex';
+                                        }}
+                                      />
+                                      <span className="rounded items-center gap-2 px-3 py-2 text-xs" style={{ display: 'none', background: out ? 'rgba(255,255,255,0.15)' : 'var(--surface-2)', color: out ? 'white' : 'var(--text-secondary)' }}>
+                                        <FileText size={14} /> Imagem indisponivel
+                                      </span>
                                     </button>
                                   ) : (msg.type === 'VIDEO' || msg.mediaType?.startsWith('video/')) ? (
                                     <video src={msg.mediaUrl} controls className="rounded max-w-full" style={{ maxHeight: 240, maxWidth: 320 }} />
@@ -2383,9 +2402,9 @@ function ContactProfileModal({ contactId, users, onClose, onSaved }: {
                         <button key={t.id} type="button" onClick={() => toggleTag(t.id)}
                           className="text-[11px] px-2 py-0.5 rounded font-medium"
                           style={{
-                            background: on ? (t.color || '#6366F1') : 'var(--surface-3)',
+                            background: on ? (t.color || '#C8553D') : 'var(--surface-3)',
                             color: on ? 'white' : 'var(--text-secondary)',
-                            border: `1px solid ${on ? (t.color || '#6366F1') : 'var(--border)'}`,
+                            border: `1px solid ${on ? (t.color || '#C8553D') : 'var(--border)'}`,
                           }}>{t.name}</button>
                       );
                     })}
@@ -2473,19 +2492,26 @@ function ForwardMessageModal({ message, onClose, onSent }: {
     if (selectedIds.size === 0) return;
     setSending(true);
     let ok = 0;
+    let failed = 0;
     for (const cid of selectedIds) {
       try {
-        // Reencaminhar: enviar o mesmo conteúdo (mediaUrl, type, content) para o contacto
-        // Para WhatsApp como canal por defeito; o backend tenta canais disponíveis.
-        await api.post('/messages', {
-          content: message.content,
+        // Reencaminhar: enviar o mesmo conteúdo (mediaUrl, type, content) para o contacto.
+        // O backend tenta a Evolution e cai para Cloud API. Verificamos o status devolvido
+        // porque a chamada HTTP pode ter sucesso mesmo quando o envio externo falha.
+        const { data } = await api.post('/messages', {
+          content: message.content || '[Anexo]',
           channel: 'WHATSAPP',
           contactId: cid,
           type: message.type || 'TEXT',
           mediaUrl: message.mediaUrl || undefined,
           mediaType: message.mediaType || undefined,
         });
-        ok++;
+        if (data?.status === 'FAILED') {
+          failed++;
+          toast.error(`Nao chegou ao destinatario ${cid.slice(-4)}: verifica o WhatsApp/Evolution`);
+        } else {
+          ok++;
+        }
         // Se há comentário extra, enviar como mensagem separada de seguida
         if (extraComment.trim()) {
           try {
@@ -2498,10 +2524,15 @@ function ForwardMessageModal({ message, onClose, onSent }: {
           } catch { /* silent */ }
         }
       } catch (e: any) {
+        failed++;
         toast.error(`Falhou para ${cid.slice(-4)}: ${e.response?.data?.message || 'erro'}`);
       }
     }
     setSending(false);
+    if (failed > 0 && ok === 0) {
+      onClose();
+      return;
+    }
     onSent(ok);
   };
 

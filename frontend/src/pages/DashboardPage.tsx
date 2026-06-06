@@ -64,7 +64,7 @@ const GOAL_TYPE_LABELS: Record<GoalType, string> = {
 };
 
 const GOAL_TYPE_COLORS: Record<GoalType, string> = {
-  leads_created: '#6366F1',
+  leads_created: '#C8553D',
   leads_won: '#10B981',
   revenue: '#0EA5E9',
   tasks_completed: '#F59E0B',
@@ -329,8 +329,8 @@ function HeatmapView({ data }: { data: HeatmapDay[] }) {
     const intensity = c / max;
     if (intensity < 0.25) return '#C7D2FE';
     if (intensity < 0.5) return '#A5B4FC';
-    if (intensity < 0.75) return '#818CF8';
-    return '#6366F1';
+    if (intensity < 0.75) return '#E58F65';
+    return '#C8553D';
   };
 
   // Reorganizar por semanas: cada coluna e uma semana, 7 linhas (dom-sab)
@@ -373,8 +373,8 @@ function HeatmapView({ data }: { data: HeatmapDay[] }) {
         <div className="w-3 h-3 rounded-sm" style={{ background: 'var(--surface-3)' }} />
         <div className="w-3 h-3 rounded-sm" style={{ background: '#C7D2FE' }} />
         <div className="w-3 h-3 rounded-sm" style={{ background: '#A5B4FC' }} />
-        <div className="w-3 h-3 rounded-sm" style={{ background: '#818CF8' }} />
-        <div className="w-3 h-3 rounded-sm" style={{ background: '#6366F1' }} />
+        <div className="w-3 h-3 rounded-sm" style={{ background: '#E58F65' }} />
+        <div className="w-3 h-3 rounded-sm" style={{ background: '#C8553D' }} />
         <span>Mais</span>
       </div>
     </div>
@@ -496,7 +496,7 @@ export default function DashboardPage() {
   const m = dashboard.monthly;
 
   const statCards = [
-    { label: 'Leads Criados', value: m.leadsCreated, growth: m.leadsCreatedGrowth, icon: Users, color: '#6366F1', bg: '#EEF2FF' },
+    { label: 'Leads Criados', value: m.leadsCreated, growth: m.leadsCreatedGrowth, icon: Users, color: '#C8553D', bg: '#F6E3DC' },
     { label: 'Negócios Ganhos', value: m.leadsWon, growth: m.leadsWonGrowth, icon: Target, color: '#10B981', bg: '#ECFDF5' },
     { label: 'Receita', value: `MZN ${(m.revenue / 1000).toFixed(1)}k`, growth: m.revenueGrowth, icon: DollarSign, color: '#0EA5E9', bg: '#F0F9FF', isString: true },
     { label: 'Tarefas em atraso', value: o.tasksDue, growth: 0, icon: AlertCircle, color: '#F59E0B', bg: '#FFFBEB' },
@@ -728,7 +728,7 @@ export default function DashboardPage() {
                 <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                 <Tooltip formatter={(v: any) => [`MZN ${Number(v).toLocaleString()}`, 'Receita']} contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 13 }} />
-                <Bar dataKey="revenue" fill="#6366F1" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="revenue" fill="#C8553D" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -1043,7 +1043,7 @@ export default function DashboardPage() {
       {visible('overview') && (
       <div style={{ order: order.indexOf('overview') }} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
-          { label: 'Total Leads', value: o.totalLeads, color: '#6366F1' },
+          { label: 'Total Leads', value: o.totalLeads, color: '#C8553D' },
           { label: 'Leads Abertos', value: o.openLeads, color: '#0EA5E9' },
           { label: 'Leads Ganhos', value: o.wonLeads, color: '#10B981' },
           { label: 'Leads Perdidos', value: o.lostLeads, color: '#EF4444' },

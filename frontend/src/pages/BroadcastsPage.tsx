@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 
 const STATUS_COLORS: Record<string, { bg: string; color: string; label: string }> = {
   DRAFT: { bg: '#F1F5F9', color: '#64748B', label: 'Rascunho' },
-  SCHEDULED: { bg: '#EEF2FF', color: '#6366F1', label: 'Agendado' },
+  SCHEDULED: { bg: '#F6E3DC', color: '#C8553D', label: 'Agendado' },
   SENDING: { bg: '#FEF3C7', color: '#92400E', label: 'A enviar...' },
   COMPLETED: { bg: '#D1FAE5', color: '#065F46', label: 'Concluido' },
   FAILED: { bg: '#FEE2E2', color: '#991B1B', label: 'Falhou' },
@@ -15,7 +15,7 @@ const STATUS_COLORS: Record<string, { bg: string; color: string; label: string }
 };
 
 const CHANNEL_ICONS: Record<string, any> = { WHATSAPP: MessageCircle, EMAIL: Mail, SMS: Radio };
-const CHANNEL_COLORS: Record<string, string> = { WHATSAPP: '#25D366', EMAIL: '#6366F1', SMS: '#F59E0B' };
+const CHANNEL_COLORS: Record<string, string> = { WHATSAPP: '#25D366', EMAIL: '#C8553D', SMS: '#F59E0B' };
 
 function NewBroadcastModal({ onClose, onCreated, allTags }: {
   onClose: () => void;
@@ -176,7 +176,7 @@ function StatsModal({ broadcastId, onClose }: { broadcastId: string; onClose: ()
         </div>
         <div className="grid grid-cols-4 gap-3 mb-4">
           {[
-            { label: 'Total', value: data.totalRecipients, color: '#6366F1' },
+            { label: 'Total', value: data.totalRecipients, color: '#C8553D' },
             { label: 'Enviadas', value: stats.SENT || 0, color: '#10B981' },
             { label: 'Falharam', value: stats.FAILED || 0, color: '#EF4444' },
             { label: 'Pendentes', value: stats.PENDING || 0, color: '#F59E0B' },
@@ -273,7 +273,7 @@ export default function BroadcastsPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'Total', value: stats.total, color: '#6366F1' },
+          { label: 'Total', value: stats.total, color: '#C8553D' },
           { label: 'Concluidos', value: stats.completed, color: '#10B981' },
           { label: 'Mensagens enviadas', value: stats.totalSent.toLocaleString(), color: '#0EA5E9' },
           { label: 'Destinatarios', value: stats.totalRecipients.toLocaleString(), color: '#F59E0B' },
