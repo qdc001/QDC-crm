@@ -17,6 +17,18 @@ import { getSocket } from '../lib/socket';
 import { useTaskOptions } from '../lib/taskOptions';
 import { AddLeadModal } from './PipelinePage';
 
+// Mensagens antigas ficaram gravadas com mediaUrl http:// (antes do fix do
+// trust proxy no backend). O navegador, sobre HTTPS, bloqueia HTTP por Mixed
+// Content. Promovemos para HTTPS quando a app corre em HTTPS, para nao
+// precisar de migrar a base de dados.
+function safeMediaUrl(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:' && u.startsWith('http://')) {
+    return 'https://' + u.slice('http://'.length);
+  }
+  return u;
+}
+
 const EMOJI_CATEGORIES: { name: string; emojis: string[] }[] = [
   { name: 'Sorrisos e emoções', emojis: ['😀','😃','😄','😁','😆','😅','😂','🤣','🥲','🥹','☺️','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🫣','🤭','🤫','🤥','😶','🫥','😐','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','👹','👺','🤡','💩','👻','💀','☠️','👽','👾','🤖','🎃','😺','😸','😹','😻','😼','😽','🙀','😿','😾'] },
   { name: 'Gestos e pessoas', emojis: ['👋','🤚','🖐️','✋','🖖','🫱','🫲','🫳','🫴','👌','🤌','🤏','✌️','🤞','🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','🫵','👍','👎','✊','👊','🤛','🤜','👏','🙌','🫶','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦵','🦶','👂','🦻','👃','🧠','🫀','🫁','🦷','🦴','👀','👁️','👅','👄','🫦','👶','🧒','👦','👧','🧑','👨','👩','🧓','👴','👵','🙍','🙎','🙅','🙆','💁','🙋','🧏','🙇','🤦','🤷','👮','🕵️','💂','👷','🤴','👸','👳','👲','🧕','🤵','👰','🤰','🤱','👼','🎅','🤶','🦸','🦹','🧙','🧚','🧛','🧜','🧝','🧞','🧟','💆','💇','🚶','🧍','🧎','🏃','💃','🕺','👯','🧖','🧗','🧘','🛀','🛌'] },
@@ -1711,9 +1723,9 @@ export default function InboxPage() {
                               {msg.mediaUrl && (
                                 <div className="mb-1">
                                   {(msg.type === 'IMAGE' || msg.mediaType?.startsWith('image/')) ? (
-                                    <button onClick={() => setLightboxUrl(msg.mediaUrl!)} className="block">
+                                    <button onClick={() => setLightboxUrl(safeMediaUrl(msg.mediaUrl)!)} className="block">
                                       <img
-                                        src={msg.mediaUrl}
+                                        src={safeMediaUrl(msg.mediaUrl)}
                                         alt=""
                                         className="rounded max-w-full cursor-pointer"
                                         style={{ maxHeight: 240 }}
@@ -1729,11 +1741,11 @@ export default function InboxPage() {
                                       </span>
                                     </button>
                                   ) : (msg.type === 'VIDEO' || msg.mediaType?.startsWith('video/')) ? (
-                                    <video src={msg.mediaUrl} controls className="rounded max-w-full" style={{ maxHeight: 240, maxWidth: 320 }} />
+                                    <video src={safeMediaUrl(msg.mediaUrl)} controls className="rounded max-w-full" style={{ maxHeight: 240, maxWidth: 320 }} />
                                   ) : (msg.type === 'AUDIO' || msg.mediaType?.startsWith('audio/')) ? (
                                     <div style={{ maxWidth: 280 }}>
                                       <audio
-                                        src={msg.mediaUrl}
+                                        src={safeMediaUrl(msg.mediaUrl)}
                                         controls
                                         preload="metadata"
                                         style={{ maxWidth: 280 }}
@@ -1776,7 +1788,7 @@ export default function InboxPage() {
                                       <div className="flex-1 min-w-0">
                                         <p className="text-xs font-medium truncate" style={{ color: out ? 'white' : 'var(--text-primary)' }}>{msg.content}</p>
                                       </div>
-                                      <a href={msg.mediaUrl} download={msg.content} target="_blank" rel="noreferrer"
+                                      <a href={safeMediaUrl(msg.mediaUrl)} download={msg.content} target="_blank" rel="noreferrer"
                                         className="p-1.5 rounded hover:bg-white/20"
                                         title="Baixar"
                                         style={{ background: out ? 'rgba(255,255,255,0.2)' : 'var(--surface-3)' }}>
@@ -2569,7 +2581,7 @@ function ForwardMessageModal({ message, onClose, onSent }: {
         {/* Preview da mensagem */}
         <div className="p-3 mx-4 my-3 rounded text-xs" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>
           {message.mediaUrl && (message.type === 'IMAGE' || message.mediaType?.startsWith('image/')) && (
-            <img src={message.mediaUrl} alt="" className="rounded mb-1" style={{ maxHeight: 80 }} />
+            <img src={safeMediaUrl(message.mediaUrl)} alt="" className="rounded mb-1" style={{ maxHeight: 80 }} />
           )}
           <p className="line-clamp-3">{message.content || '[Anexo]'}</p>
         </div>

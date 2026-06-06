@@ -58,6 +58,11 @@ const io = new SocketServer(httpServer, {
   },
 });
 
+// Easypanel/Traefik termina TLS antes do backend e envia X-Forwarded-Proto/Host.
+// Sem isto, req.protocol vinha sempre como 'http' e as mediaUrl geradas para
+// imagens/audios ficavam em http://, depois bloqueadas por Mixed Content na UI.
+app.set('trust proxy', true);
+
 // Global middleware
 app.use(helmet());
 app.use(cors({

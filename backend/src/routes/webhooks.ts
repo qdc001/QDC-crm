@@ -62,10 +62,26 @@ async function autoAssignConversation(workspaceId: string, contactId: string, ch
   return chosen;
 }
 
-// Helper: devolve URL absoluto baseado no PUBLIC_API_URL ou request
+// Helper: devolve URL absoluto baseado no PUBLIC_API_URL ou no request actual.
+// Em producao forca HTTPS porque os endereços publicos do Easypanel/Traefik so
+// servem em HTTPS. Se a URL ficasse em http://, o navegador (que carrega a app
+// em HTTPS) bloquearia as imagens/audios por Mixed Content.
 function absoluteUrl(req: Request, p: string): string {
-  const base = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
-  return `${base}${p.startsWith('/') ? p : '/' + p}`;
+  const rel = p.startsWith('/') ? p : '/' + p;
+  if (process.env.PUBLIC_API_URL) {
+    return `${process.env.PUBLIC_API_URL.replace(/\/$/, '')}${rel}`;
+  }
+  const host = (req.get('x-forwarded-host') || req.get('host') || 'localhost').split(',')[0].trim();
+  const xfProto = req.get('x-forwarded-proto');
+  let proto: string;
+  if (xfProto) {
+    proto = xfProto.split(',')[0].trim();
+  } else if (process.env.NODE_ENV === 'production' && !/^(localhost|127\.|0\.0\.|\[::)/.test(host)) {
+    proto = 'https';
+  } else {
+    proto = req.protocol;
+  }
+  return `${proto}://${host}${rel}`;
 }
 
 // Helper: baixa media da Evolution via base64 e guarda como ficheiro local
