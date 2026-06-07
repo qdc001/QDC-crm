@@ -326,6 +326,49 @@ export default function LeadsPage() {
   };
 
   const [syncing, setSyncing] = useState(false);
+  const [tidying, setTidying] = useState(false);
+
+  const reloadFirstPage = async () => {
+    const params = new URLSearchParams();
+    params.set('page', '1');
+    params.set('limit', String(limit));
+    if (search.trim()) params.set('search', search.trim());
+    if (pipelineId) params.set('pipelineId', pipelineId);
+    if (stageId) params.set('stageId', stageId);
+    if (status) params.set('status', status);
+    if (assignedToId) params.set('assignedToId', assignedToId);
+    const { data } = await api.get(`/leads?${params.toString()}`);
+    let list: Lead[] = data.leads || [];
+    if (priority) list = list.filter((l) => l.priority === priority);
+    setLeads(list);
+    setTotal(data.total || 0);
+    setPage(1);
+  };
+
+  const handleTidyLeads = async () => {
+    if (tidying) return;
+    setTidying(true);
+    try {
+      const { data: preview } = await api.post('/leads/archive-unidentified', { dryRun: true });
+      if (preview.toArchive === 0) {
+        toast.success('Nada para arrumar. Todos os leads têm número.');
+        return;
+      }
+      const ok = confirm(
+        `${preview.toArchive} leads sem número real vão para o pipeline "Arquivo".\n` +
+        `Ficam ${preview.toKeep} no Principal.\n\nNada é apagado. Confirmar?`
+      );
+      if (!ok) return;
+      const { data } = await api.post('/leads/archive-unidentified', { dryRun: false });
+      toast.success(`${data.moved} leads movidos para o Arquivo.`);
+      await reloadFirstPage();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Erro ao arrumar leads');
+    } finally {
+      setTidying(false);
+    }
+  };
+
   const handleSyncStatuses = async () => {
     if (!confirm('Sincronizar o estado de todos os leads com a etapa em que estao? (Aberto/Ganho/Perdido)')) return;
     setSyncing(true);
@@ -414,6 +457,16 @@ export default function LeadsPage() {
           >
             {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             Sincronizar estados
+          </button>
+          <button
+            onClick={handleTidyLeads}
+            disabled={tidying}
+            className="btn py-2 px-3"
+            style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}
+            title="Move para o Arquivo os leads de contactos sem número real (número oculto)"
+          >
+            {tidying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            Arrumar leads
           </button>
           <button
             onClick={() => setAdding(true)}

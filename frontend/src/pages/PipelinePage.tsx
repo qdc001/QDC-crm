@@ -1610,10 +1610,12 @@ export default function PipelinePage() {
     const loadLeads = async () => {
       try {
         const url = isAggregated
-          ? `/leads?limit=500`
-          : `/leads?pipelineId=${activePipelineId}&limit=200`;
+          ? `/leads?limit=2000`
+          : `/leads?pipelineId=${activePipelineId}&limit=2000`;
         const { data } = await api.get(url);
-        setLeads(data.leads || []);
+        const all = data.leads || [];
+        // Na vista agregada, não mostrar os leads arquivados
+        setLeads(isAggregated ? all.filter((l: any) => l.pipeline?.name !== 'Arquivo') : all);
       } catch {
         toast.error('Erro ao carregar leads');
       }

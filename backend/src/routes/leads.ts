@@ -46,6 +46,63 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
   } catch (error) { next(error); }
 });
 
+// POST /api/leads/archive-unidentified
+// Move para um pipeline "Arquivo" os leads cujo contacto não tem número real
+// (contactos de número oculto/LID, ou sem contacto). Não apaga nada, é reversível.
+// Body: { dryRun?: boolean } — dryRun devolve apenas as contagens.
+router.post('/archive-unidentified', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const dryRun = !!req.body?.dryRun;
+
+    // Critério: lead OPEN, fora do Arquivo, cujo contacto não tem telefone real
+    const matchWhere: any = {
+      workspaceId,
+      status: 'OPEN',
+      pipeline: { name: { not: 'Arquivo' } },
+      OR: [
+        { contactId: null },
+        { contact: { phone: null } },
+        { contact: { phone: '' } },
+      ],
+    };
+
+    const toArchive = await prisma.lead.count({ where: matchWhere });
+
+    if (dryRun) {
+      const total = await prisma.lead.count({ where: { workspaceId, status: 'OPEN' } });
+      return res.json({ dryRun: true, toArchive, toKeep: total - toArchive, total });
+    }
+
+    if (toArchive === 0) return res.json({ dryRun: false, moved: 0 });
+
+    // Garantir pipeline "Arquivo" com uma etapa
+    let archive = await prisma.pipeline.findFirst({ where: { workspaceId, name: 'Arquivo' } });
+    if (!archive) {
+      const owner = await prisma.user.findFirst({ where: { workspaceId, role: 'OWNER' }, select: { id: true } });
+      archive = await prisma.pipeline.create({
+        data: {
+          name: 'Arquivo',
+          description: 'Leads sem número real (número oculto). Movidos automaticamente.',
+          workspaceId,
+          createdById: owner?.id || req.user!.id,
+          stages: { create: [{ name: 'Arquivado', position: 0, type: 'REGULAR' }] },
+        },
+      });
+    }
+    const stage = await prisma.stage.findFirst({ where: { pipelineId: archive.id }, orderBy: { position: 'asc' } });
+    if (!stage) throw new AppError('Pipeline Arquivo sem etapa', 500);
+
+    const ids = (await prisma.lead.findMany({ where: matchWhere, select: { id: true } })).map((l) => l.id);
+    const result = await prisma.lead.updateMany({
+      where: { id: { in: ids } },
+      data: { pipelineId: archive.id, stageId: stage.id },
+    });
+
+    res.json({ dryRun: false, moved: result.count, archivePipelineId: archive.id });
+  } catch (e) { next(e); }
+});
+
 // GET /api/leads/:id
 router.get('/:id', async (req: AuthRequest, res: Response, next) => {
   try {
