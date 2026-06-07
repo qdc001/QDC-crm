@@ -940,6 +940,46 @@ router.post('/evolution/fix-names', async (req: AuthRequest, res: Response, next
   } catch (e) { next(e); }
 });
 
+// GET /api/integrations/evolution/names-diagnostic
+// Diagnóstico (só leitura): mostra o que a Evolution devolve em findContacts,
+// para percebermos se temos nomes de agenda disponíveis ou não.
+router.get('/evolution/names-diagnostic', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const integration = await prisma.integration.findFirst({
+      where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' } },
+    });
+    if (!integration) throw new AppError('Evolution não configurada', 400);
+    const creds: any = getCreds(integration);
+    if (!creds.baseUrl || !creds.apiKey || !creds.instanceName) {
+      throw new AppError('Configuração Evolution incompleta', 400);
+    }
+
+    const r = await evolutionFetch(creds, `/chat/findContacts/${creds.instanceName}`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    const list = Array.isArray(r) ? r : (r?.contacts || r?.data || []);
+
+    let withBookName = 0, withVerified = 0, withPush = 0, withNone = 0;
+    const sample: any[] = [];
+    for (const ec of list) {
+      const jid = String(ec?.remoteJid || ec?.id || '');
+      if (jid.endsWith('@g.us') || jid.endsWith('@broadcast')) continue;
+      const name = String(ec?.name || '').trim();
+      const verifiedName = String(ec?.verifiedName || '').trim();
+      const pushName = String(ec?.pushName || ec?.notify || '').trim();
+      if (name) withBookName++;
+      else if (verifiedName) withVerified++;
+      else if (pushName) withPush++;
+      else withNone++;
+      if (sample.length < 10) sample.push({ id: jid, name, verifiedName, pushName });
+    }
+
+    res.json({ total: list.length, withBookName, withVerified, withPush, withNone, sample });
+  } catch (e) { next(e); }
+});
+
 // GET /api/integrations/evolution/groups
 // Lista grupos WhatsApp disponíveis na instância Evolution.
 // Devolve [{ jid, name }] para usar no selector de digest por utilizador.

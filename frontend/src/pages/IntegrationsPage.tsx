@@ -447,6 +447,26 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
     }
   };
 
+  // Diagnóstico (só leitura): ver quantos contactos a Evolution tem com nome
+  const namesDiagnostic = async () => {
+    try {
+      const { data } = await api.get('/integrations/evolution/names-diagnostic');
+      const sampleTxt = (data.sample || [])
+        .map((s: any) => `• ${s.name || s.verifiedName || s.pushName || '(sem nome)'}  [${s.id}]`)
+        .join('\n');
+      alert(
+        `Contactos na Evolution: ${data.total}\n` +
+        `Com nome da agenda: ${data.withBookName}\n` +
+        `Com nome de empresa: ${data.withVerified}\n` +
+        `Só com nome de perfil: ${data.withPush}\n` +
+        `Sem nome nenhum: ${data.withNone}\n\n` +
+        `Amostra:\n${sampleTxt || '(vazio)'}`
+      );
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || e.response?.data?.message || 'Erro no diagnóstico');
+    }
+  };
+
   // Sincronizar nomes a partir do livro de contactos do telefone (Evolution findContacts)
   // Modos:
   //   'update'  — apenas actualiza nomes dos contactos que já existem no CRM
@@ -619,6 +639,14 @@ function EvolutionConnectModal({ existing, onClose, onChanged }: {
                       >
                         {fixingNames ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                         Corrigir nomes de contactos
+                      </button>
+                      <button
+                        onClick={namesDiagnostic}
+                        className="btn text-xs py-1.5 w-full"
+                        style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                        title="Mostra quantos contactos da Evolution têm nome de agenda, de perfil ou nenhum"
+                      >
+                        <RefreshCw size={12} /> Diagnóstico de nomes
                       </button>
                     </div>
                   )}
