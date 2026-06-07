@@ -436,6 +436,21 @@ export default function LeadsPage() {
     }
   };
 
+  const defaultPipeline = pipelines.find((p) => p.isDefault) || pipelines[0];
+
+  const handleBulkMoveStage = async (stageId: string) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || !stageId) return;
+    try {
+      await Promise.all(ids.map((id) => api.patch(`/leads/${id}/move`, { stageId, pipelineId: defaultPipeline?.id })));
+      setSelectedIds(new Set());
+      toast.success(`${ids.length} leads movidos`);
+      await reloadFirstPage();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao mover');
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const hasFilters = !!(search || pipelineId || stageId || status || priority || assignedToId);
 
@@ -487,6 +502,15 @@ export default function LeadsPage() {
             Limpar selecção
           </button>
           <div className="flex-1" />
+          <select
+            onChange={(e) => { if (e.target.value) handleBulkMoveStage(e.target.value); e.target.value = ''; }}
+            className="input-base text-xs"
+            style={{ width: 200 }}
+            defaultValue=""
+          >
+            <option value="" disabled>Mover para etapa...</option>
+            {(defaultPipeline?.stages || []).map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
           <select
             onChange={(e) => { if (e.target.value) handleBulkAssign(e.target.value); e.target.value = ''; }}
             className="input-base text-xs"

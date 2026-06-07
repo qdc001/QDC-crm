@@ -1610,8 +1610,8 @@ export default function PipelinePage() {
     const loadLeads = async () => {
       try {
         const url = isAggregated
-          ? `/leads?limit=2000`
-          : `/leads?pipelineId=${activePipelineId}&limit=2000`;
+          ? `/leads?limit=all`
+          : `/leads?pipelineId=${activePipelineId}&limit=all`;
         const { data } = await api.get(url);
         const all = data.leads || [];
         // Na vista agregada, não mostrar os leads arquivados

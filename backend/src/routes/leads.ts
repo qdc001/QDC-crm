@@ -24,7 +24,10 @@ const leadInclude = {
 router.get('/', async (req: AuthRequest, res: Response, next) => {
   try {
     const { pipelineId, stageId, assignedToId, status, search, page = 1, limit = 50 } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    // limit='all' ou 0 => sem limite (devolve todos)
+    const unlimited = limit === 'all' || Number(limit) === 0;
+    const take = unlimited ? undefined : Number(limit);
+    const skip = unlimited ? undefined : (Number(page) - 1) * Number(limit);
 
     const where: any = { workspaceId: req.user!.workspaceId };
     if (pipelineId) where.pipelineId = pipelineId;
@@ -38,11 +41,11 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
     }
 
     const [leads, total] = await Promise.all([
-      prisma.lead.findMany({ where, include: leadInclude, skip, take: Number(limit), orderBy: { createdAt: 'desc' } }),
+      prisma.lead.findMany({ where, include: leadInclude, skip, take, orderBy: { createdAt: 'desc' } }),
       prisma.lead.count({ where }),
     ]);
 
-    res.json({ leads, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+    res.json({ leads, total, page: unlimited ? 1 : Number(page), pages: unlimited ? 1 : Math.ceil(total / Number(limit)) });
   } catch (error) { next(error); }
 });
 
