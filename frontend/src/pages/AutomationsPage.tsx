@@ -1001,12 +1001,71 @@ function HistoryModal({ automation, onClose }: { automation: Automation; onClose
 }
 
 // ── Página principal ───────────────────────────────────
+// ── Modal de modelos de follow-up ──────────────────────
+function TemplatesModal({ onClose, onApplied }: { onClose: () => void; onApplied: (a: Automation) => void }) {
+  const [templates, setTemplates] = useState<{ id: string; name: string; description: string; icon: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [applying, setApplying] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get('/automations/templates')
+      .then((r) => setTemplates(r.data))
+      .catch((e: any) => toast.error(e.response?.data?.message || 'Erro a carregar modelos'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const apply = async (id: string) => {
+    setApplying(id);
+    try {
+      const res = await api.post('/automations/from-template', { templateId: id });
+      toast.success('Modelo criado (inactivo). Preenche os campos e activa.');
+      onApplied(res.data);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro a criar a partir do modelo');
+    } finally { setApplying(null); }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div className="card" style={{ width: 720, maxHeight: '85vh', display: 'flex', flexDirection: 'column', background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <h3 className="font-bold text-base" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>Modelos de follow-up</h3>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Cada modelo é criado inactivo. Preenche os campos específicos do teu workspace e activa quando quiseres.</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-100"><X size={16} /></button>
+        </div>
+
+        <div className="p-4" style={{ flex: 1, overflowY: 'auto' }}>
+          {loading ? (
+            <div className="flex justify-center py-10"><Loader2 className="animate-spin" size={20} /></div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {templates.map((t) => (
+                <div key={t.id} className="card p-4 flex flex-col gap-2" style={{ background: 'var(--surface-2)' }}>
+                  <div style={{ fontSize: 24 }}>{t.icon}</div>
+                  <h4 className="font-semibold text-sm" style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>{t.name}</h4>
+                  <p className="text-xs flex-1" style={{ color: 'var(--text-secondary)' }}>{t.description}</p>
+                  <button onClick={() => apply(t.id)} disabled={applying === t.id} className="btn btn-primary text-xs py-1.5 gap-1.5 mt-1 justify-center">
+                    {applying === t.id ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Usar modelo
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AutomationsPage() {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [historyFor, setHistoryFor] = useState<Automation | null>(null);
   const [creating, setCreating] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -1089,9 +1148,14 @@ export default function AutomationsPage() {
             Regras "quando isto acontece, faz aquilo"
           </p>
         </div>
-        <button onClick={handleCreate} disabled={creating} className="btn btn-primary gap-2">
-          {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Nova automatização
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowTemplates(true)} className="btn btn-outline gap-2">
+            <Zap size={16} /> Modelos
+          </button>
+          <button onClick={handleCreate} disabled={creating} className="btn btn-primary gap-2">
+            {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Nova automatização
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -1167,6 +1231,17 @@ export default function AutomationsPage() {
       )}
 
       {historyFor && <HistoryModal automation={historyFor} onClose={() => setHistoryFor(null)} />}
+
+      {showTemplates && (
+        <TemplatesModal
+          onClose={() => setShowTemplates(false)}
+          onApplied={(a) => {
+            setAutomations((arr) => [a, ...arr]);
+            setShowTemplates(false);
+            setEditing(a);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { testAutomation } from '../lib/automationEngine';
+import { AUTOMATION_TEMPLATES } from '../lib/automationTemplates';
 
 import prisma from '../lib/prisma';
 const router = Router();
@@ -19,6 +20,40 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
       orderBy: { updatedAt: 'desc' },
     });
     res.json(automations);
+  } catch (e) { next(e); }
+});
+
+// GET /api/automations/templates  (tem de vir antes de /:id)
+router.get('/templates', async (_req: AuthRequest, res: Response, next) => {
+  try {
+    res.json(AUTOMATION_TEMPLATES.map((t) => ({ id: t.id, name: t.name, description: t.description, icon: t.icon })));
+  } catch (e) { next(e); }
+});
+
+// POST /api/automations/from-template
+router.post('/from-template', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { templateId } = req.body;
+    const tpl = AUTOMATION_TEMPLATES.find((t) => t.id === templateId);
+    if (!tpl) throw new AppError('Modelo não encontrado', 404);
+
+    const automation = await prisma.automation.create({
+      data: {
+        name: tpl.name,
+        description: tpl.description,
+        trigger: tpl.trigger as any,
+        conditions: (tpl.conditions ?? []) as any,
+        actions: tpl.actions as any,
+        isActive: false,
+        runLimitPerContact: tpl.runLimitPerContact ?? null,
+        runLimitTotal: tpl.runLimitTotal ?? null,
+        runLimitWindow: tpl.runLimitWindow ?? null,
+        workspaceId: req.user!.workspaceId,
+        createdById: req.user!.id,
+      },
+      include: automationInclude,
+    });
+    res.status(201).json(automation);
   } catch (e) { next(e); }
 });
 

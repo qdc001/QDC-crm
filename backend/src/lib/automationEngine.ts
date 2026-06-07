@@ -169,22 +169,51 @@ async function isWithinRunLimits(auto: any, contactId: string | null): Promise<{
   return { ok: true };
 }
 
-// ── WhatsApp helper (reuso simplificado do chatbotEngine) ───
+// ── WhatsApp helper ───────────────────────────────────
+// Envia primeiro pela Evolution API (integração WEBHOOK "evolution"), que é a
+// usada na Caixa de Entrada, e só recorre à WhatsApp Cloud API se a Evolution
+// não estiver configurada. Sem isto, as automações nunca enviariam mensagens
+// num workspace que usa a Evolution.
 async function sendWhatsAppText(workspaceId: string, to: string, text: string): Promise<boolean> {
+  // 1) Evolution API
+  const evo = await prisma.integration.findFirst({
+    where: { workspaceId, type: 'WEBHOOK', name: { contains: 'evolution', mode: 'insensitive' }, isActive: true },
+  });
+  if (evo) {
+    const creds: any = getCreds(evo);
+    if (creds?.baseUrl && creds?.apiKey && creds?.instanceName) {
+      try {
+        const isGroupJid = typeof to === 'string' && to.includes('@g.us');
+        const destination = isGroupJid ? to : String(to).replace(/\D/g, '');
+        const r = await fetch(`${creds.baseUrl.replace(/\/$/, '')}/message/sendText/${creds.instanceName}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: creds.apiKey },
+          body: JSON.stringify({ number: destination, text }),
+        });
+        if (r.ok) return true;
+      } catch { /* tenta a Cloud API a seguir */ }
+    }
+  }
+
+  // 2) WhatsApp Cloud API (fallback)
   const integration = await prisma.integration.findFirst({
     where: { workspaceId, type: 'WHATSAPP', isActive: true },
   });
-  if (!integration) return false;
-  const creds: any = getCreds(integration);
-  if (!creds?.token || !creds?.phoneId) return false;
-  try {
-    const res = await fetch(`https://graph.facebook.com/v19.0/${creds.phoneId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.token}` },
-      body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: text } }),
-    });
-    return res.ok;
-  } catch { return false; }
+  if (integration) {
+    const creds: any = getCreds(integration);
+    if (creds?.token && creds?.phoneId) {
+      try {
+        const res = await fetch(`https://graph.facebook.com/v19.0/${creds.phoneId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${creds.token}` },
+          body: JSON.stringify({ messaging_product: 'whatsapp', to: String(to).replace(/\D/g, ''), type: 'text', text: { body: text } }),
+        });
+        if (res.ok) return true;
+      } catch { /* noop */ }
+    }
+  }
+
+  return false;
 }
 
 async function sendEmailAction(workspaceId: string, to: string, subject: string, body: string): Promise<boolean> {
