@@ -34,11 +34,10 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     conditions: [],
     actions: [
       {
-        type: 'send_notification',
+        type: 'notify_whatsapp',
         params: {
-          userId: '',
-          title: 'Cliente à espera de resposta',
-          body: '{{contact.firstName}} enviou mensagem e ainda não tem resposta.',
+          destination: '',
+          text: '🔔 O contacto {{contact.firstName}} enviou mensagem e ainda não tem resposta. Convém responder.',
         },
       },
     ],

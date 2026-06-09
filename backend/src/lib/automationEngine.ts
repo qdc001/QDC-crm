@@ -258,6 +258,16 @@ async function executeAction(action: Action, ctx: RuleContext): Promise<void> {
       break;
     }
 
+    case 'notify_whatsapp': {
+      // Notifica um destino fixo (número ou grupo @g.us), escolhido na automação.
+      const dest = String(params.destination || '').trim();
+      const text = interpolate(params.text || '', ctx);
+      if (!dest || !text) { record(ctx, 'notify_whatsapp skip', 'sem destino ou texto'); return; }
+      const ok = await sendWhatsAppText(ctx.workspaceId, dest, text);
+      record(ctx, 'notify_whatsapp', ok ? `enviado a ${dest}` : 'falhou');
+      break;
+    }
+
     case 'create_task': {
       const assigneeId = params.assignedToId
         || entity?.assignedToId

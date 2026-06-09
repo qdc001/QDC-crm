@@ -42,6 +42,7 @@ const ACTIONS: { type: AutomationActionType; label: string; icon: string }[] = [
   { type: 'update_contact', label: 'Actualizar campos do contacto', icon: '✏️' },
   { type: 'run_chatbot', label: 'Disparar chatbot', icon: '🤖' },
   { type: 'send_notification', label: 'Notificar utilizador', icon: '🔔' },
+  { type: 'notify_whatsapp', label: 'Notificar por WhatsApp (contacto/grupo)', icon: '📲' },
   { type: 'webhook', label: 'Chamar webhook', icon: '🔌' },
 ];
 
@@ -118,6 +119,35 @@ function UserPicker({ value, onChange }: { value: string; onChange: (v: string) 
       <option value="">-- Escolher utilizador --</option>
       {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
     </select>
+  );
+}
+
+function GroupPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [groups, setGroups] = useState<{ jid: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api.get('/integrations/evolution/groups')
+      .then((r) => setGroups(r.data?.groups || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+  return (
+    <div className="space-y-1.5">
+      <select
+        value={groups.some((g) => g.jid === value) ? value : ''}
+        onChange={(e) => onChange(e.target.value)}
+        className="input-base w-full text-xs"
+      >
+        <option value="">{loading ? 'A carregar grupos...' : '— Escolher grupo —'}</option>
+        {groups.map((g) => <option key={g.jid} value={g.jid}>{g.name}</option>)}
+      </select>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="input-base w-full text-xs"
+        placeholder="ou número (ex: 258XXXXXXXXX) ou JID do grupo"
+      />
+    </div>
   );
 }
 
@@ -351,6 +381,19 @@ function ActionEditor({ action, onChange, onRemove }: {
             rows={2}
             className="input-base w-full text-xs"
             placeholder="Mensagem"
+          />
+        </div>
+      )}
+
+      {action.type === 'notify_whatsapp' && (
+        <div className="space-y-2">
+          <GroupPicker value={params.destination || ''} onChange={(v) => updateParam('destination', v)} />
+          <textarea
+            value={params.text || ''}
+            onChange={(e) => updateParam('text', e.target.value)}
+            rows={3}
+            className="input-base w-full text-xs"
+            placeholder="Mensagem a enviar para o WhatsApp..."
           />
         </div>
       )}

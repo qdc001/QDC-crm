@@ -664,7 +664,7 @@ export type AutomationActionType =
   | 'send_message' | 'send_email' | 'create_task' | 'assign_user'
   | 'change_stage' | 'add_tag' | 'remove_tag' | 'set_priority'
   | 'update_lead' | 'update_contact' | 'run_chatbot'
-  | 'webhook' | 'send_notification';
+  | 'webhook' | 'send_notification' | 'notify_whatsapp';
 
 export interface AutomationAction {
   type: AutomationActionType;
