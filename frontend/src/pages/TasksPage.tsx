@@ -342,15 +342,7 @@ function TaskFormModalV2({
       if (err.response?.status === 409 && err.response?.data?.existingTask) {
         const ex = err.response.data.existingTask;
         const dueStr = ex.dueAt ? new Date(ex.dueAt).toLocaleString('pt-PT') : 'sem prazo';
-        const confirmed = window.confirm(
-          `Já existe tarefa pendente para este lead:\n\n${ex.title}\nPrazo: ${dueStr}\nPrioridade: ${ex.priority}\n\nCriar nova mesmo assim?`
-        );
-        if (confirmed) {
-          try {
-            const { data } = await api.post('/tasks', { ...payload, force: true });
-            onSaved(data); onClose(); toast.success('Tarefa criada');
-          } catch (e2: any) { toast.error(e2.response?.data?.message || 'Erro'); }
-        }
+        toast.error(`Já existe uma tarefa pendente para este contacto: "${ex.title}" (${dueStr}). Conclui-a antes de criar outra.`);
       } else {
         toast.error(err.response?.data?.message || 'Erro a guardar');
       }

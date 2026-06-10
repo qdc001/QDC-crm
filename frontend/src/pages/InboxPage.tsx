@@ -2862,13 +2862,10 @@ function QuickNewTaskModal({ leadId, contactId, contactName, onClose, onCreated 
               </p>
             </div>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Podes ver a tarefa em <strong>Tarefas</strong>, ou criar uma nova mesmo assim.
+              Só pode existir uma tarefa pendente por contacto. Conclui a actual (vê-la em <strong>Tarefas</strong>) antes de criar outra.
             </p>
             <div className="flex gap-2">
-              <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
-              <button onClick={() => submit(true)} disabled={saving} className="btn btn-primary flex-1 py-2">
-                {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar mesmo assim'}
-              </button>
+              <button onClick={onClose} className="btn btn-primary flex-1 py-2">Fechar</button>
             </div>
           </div>
         ) : (

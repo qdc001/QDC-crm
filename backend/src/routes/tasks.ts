@@ -44,7 +44,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 
 router.post('/', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { title, description, type, status, priority, dueAt, leadId, contactId: rawContactId, assignedToId, recurrence, parentTaskId, tags, force } = req.body;
+    const { title, description, type, status, priority, dueAt, leadId, contactId: rawContactId, assignedToId, recurrence, parentTaskId, tags } = req.body;
 
     // Associação primária ao CONTACTO. Se vier um leadId explícito ainda o preservamos
     // (compatibilidade com automações antigas), mas não auto-ligamos lead a partir de contacto
@@ -57,8 +57,8 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       if (lead?.contactId) finalContactId = lead.contactId;
     }
 
-    // Verificar se já existe tarefa pendente (lead OU contact)
-    if (!parentTaskId && !force && (finalLeadId || finalContactId)) {
+    // Não permitir duas tarefas pendentes para o mesmo contacto/lead.
+    if (!parentTaskId && (finalLeadId || finalContactId)) {
       const orFilters: any[] = [];
       if (finalLeadId) orFilters.push({ leadId: finalLeadId });
       if (finalContactId) orFilters.push({ contactId: finalContactId });

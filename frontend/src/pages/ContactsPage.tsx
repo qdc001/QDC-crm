@@ -1321,11 +1321,11 @@ function QuickContactTaskModal({ contact, onClose, onCreated }: {
                 {existing.dueAt ? `Prazo: ${new Date(existing.dueAt).toLocaleString('pt-PT')}` : 'Sem prazo'} · {existing.priority} · {existing.status}
               </p>
             </div>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Só pode existir uma tarefa pendente por contacto. Conclui a actual antes de criar outra.
+            </p>
             <div className="flex gap-2">
-              <button onClick={onClose} className="btn flex-1 py-2" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }}>Fechar</button>
-              <button onClick={() => submit(true)} disabled={saving} className="btn btn-primary flex-1 py-2">
-                {saving ? <Loader2 size={14} className="animate-spin" /> : 'Criar mesmo assim'}
-              </button>
+              <button onClick={onClose} className="btn btn-primary flex-1 py-2">Fechar</button>
             </div>
           </div>
         ) : (
