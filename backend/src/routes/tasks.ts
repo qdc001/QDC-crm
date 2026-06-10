@@ -79,6 +79,20 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
       }
     }
 
+    // Resolver responsável: se não vier explícito, usar o responsável do lead ou
+    // do contacto (a tarefa pertence a quem trata desse cliente). Só recai no
+    // criador se não houver responsável em nenhum dos dois.
+    let resolvedAssigneeId: string = assignedToId || '';
+    if (!resolvedAssigneeId && finalLeadId) {
+      const l = await prisma.lead.findUnique({ where: { id: finalLeadId }, select: { assignedToId: true } });
+      if (l?.assignedToId) resolvedAssigneeId = l.assignedToId;
+    }
+    if (!resolvedAssigneeId && finalContactId) {
+      const c = await prisma.contact.findUnique({ where: { id: finalContactId }, select: { assignedToId: true } });
+      if (c?.assignedToId) resolvedAssigneeId = c.assignedToId;
+    }
+    if (!resolvedAssigneeId) resolvedAssigneeId = req.user!.id;
+
     const task = await prisma.task.create({
       data: {
         title,
@@ -91,7 +105,7 @@ router.post('/', async (req: AuthRequest, res: Response, next) => {
         contactId: finalContactId,
         recurrence: recurrence || null,
         parentTaskId: parentTaskId || null,
-        assignedToId: assignedToId || req.user!.id,
+        assignedToId: resolvedAssigneeId,
         tags: Array.isArray(tags) && tags.length
           ? { create: tags.map((tagId: string) => ({ tagId })) }
           : undefined,
