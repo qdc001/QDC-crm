@@ -49,6 +49,24 @@ export async function propagateAssignee(
       );
     }
 
+    // Tarefas: reatribuir as NÃO concluídas do contacto (e dos seus leads), para
+    // que o responsável escolhido na Caixa de Entrada/lead/contacto se reflicta
+    // na secção Tarefas. Task.assignedToId é obrigatório, por isso só propagamos
+    // quando há responsável (não limpamos tarefas ao remover o responsável).
+    if (assignedToId) {
+      const leadIds = (await prisma.lead.findMany({
+        where: { contactId, workspaceId },
+        select: { id: true },
+      })).map((l) => l.id);
+      const taskOr: any[] = [{ contactId }];
+      if (leadIds.length) taskOr.push({ leadId: { in: leadIds } });
+      tasks.push(
+        prisma.task
+          .updateMany({ where: { completedAt: null, OR: taskOr }, data: { assignedToId } })
+          .catch((e) => console.error('propagateAssignee/tasks:', e.message)),
+      );
+    }
+
     await Promise.all(tasks);
   } catch (e: any) {
     console.error('propagateAssignee fatal:', e.message);
