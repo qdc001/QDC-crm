@@ -9,7 +9,7 @@ import {
   List as ListIcon, RotateCcw, AlertCircle, ExternalLink, Download, Upload,
   Phone, Mail, Users as UsersIcon, Repeat, Briefcase, Circle,
   ChevronLeft, ChevronRight, CheckSquare, Square, MinusSquare,
-  Tags as TagsIcon, Layout, Flag, Clock, User as UserIcon, MessageSquare, FileSpreadsheet,
+  Tags as TagsIcon, Layout, Flag, Clock, User as UserIcon, MessageSquare, FileSpreadsheet, Send,
 } from 'lucide-react';
 import api, {
   Task, User, Lead, Tag as TagType, Pipeline, Stage, TaskOption,
@@ -713,8 +713,11 @@ function AgendaCard({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                const q = task.lead?.id ? `leadId=${task.lead.id}` : `contactId=${task.contact!.id}`;
-                window.location.href = `/inbox?${q}`;
+                window.dispatchEvent(new CustomEvent('open-task-chat', { detail: {
+                  contactId: task.contact?.id || null,
+                  leadId: task.lead?.id || null,
+                  name: task.lead?.title || (task.contact ? `${task.contact.firstName} ${task.contact.lastName || ''}`.trim() : 'Conversa'),
+                } }));
               }}
               className="p-0.5 rounded hover:bg-white/20 flex-shrink-0"
               title="Abrir conversa"
@@ -1323,6 +1326,98 @@ function ImportTasksModal({ onClose, onImported }: { onClose: () => void; onImpo
 }
 
 // =============== Página principal ===============
+// Painel de conversa que abre na própria aba de Tarefas ao clicar no ícone de chat
+function TaskChatDrawer({ target, onClose }: {
+  target: { contactId: string | null; leadId: string | null; name: string };
+  onClose: () => void;
+}) {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    const q = target.contactId ? `contactId=${target.contactId}` : `leadId=${target.leadId}`;
+    api.get(`/messages?${q}`)
+      .then(({ data }) => { if (active) setMessages(Array.isArray(data) ? data : []); })
+      .catch(() => {})
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [target.contactId, target.leadId]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  const send = async () => {
+    const body = text.trim();
+    if (!body || sending) return;
+    setSending(true);
+    try {
+      const { data } = await api.post('/messages', {
+        content: body, channel: 'WHATSAPP', type: 'TEXT', direction: 'OUTBOUND',
+        contactId: target.contactId || undefined, leadId: target.leadId || undefined,
+      });
+      setMessages((m) => [...m, data]);
+      setText('');
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Erro ao enviar');
+    } finally { setSending(false); }
+  };
+
+  return (
+    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 420, maxWidth: '92vw', zIndex: 50, display: 'flex', flexDirection: 'column', background: 'var(--surface)', borderLeft: '1px solid var(--border)', boxShadow: '-4px 0 24px rgba(0,0,0,0.18)' }}>
+      <div className="flex items-center justify-between p-3" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <MessageSquare size={16} style={{ color: 'var(--primary)' }} />
+          <span className="font-semibold text-sm truncate">{target.name}</span>
+        </div>
+        <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-100"><X size={16} /></button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3 space-y-2" style={{ background: 'var(--surface-2)' }}>
+        {loading ? (
+          <div className="flex justify-center py-10"><Loader2 className="animate-spin" size={20} /></div>
+        ) : messages.length === 0 ? (
+          <p className="text-xs text-center py-10" style={{ color: 'var(--text-muted)' }}>Sem mensagens nesta conversa.</p>
+        ) : (
+          messages.map((m) => {
+            const out = m.direction === 'OUTBOUND';
+            return (
+              <div key={m.id} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
+                <div className="rounded-lg px-3 py-2 text-xs" style={{ maxWidth: '80%', background: out ? 'var(--primary)' : 'var(--surface)', color: out ? '#fff' : 'var(--text-primary)', border: out ? 'none' : '1px solid var(--border)' }}>
+                  {m.mediaUrl && m.type === 'IMAGE' && <img src={m.mediaUrl} alt="" className="rounded mb-1" style={{ maxWidth: '100%' }} />}
+                  {m.type && m.type !== 'TEXT' && !m.content
+                    ? <span className="italic" style={{ opacity: 0.8 }}>[{m.type}]</span>
+                    : <span style={{ whiteSpace: 'pre-wrap' }}>{m.content}</span>}
+                  <div className="text-[10px] mt-1" style={{ opacity: 0.7 }}>
+                    {new Date(m.createdAt).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="p-2 flex items-center gap-2" style={{ borderTop: '1px solid var(--border)' }}>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          placeholder="Escrever mensagem..."
+          className="input-base flex-1 text-xs"
+        />
+        <button onClick={send} disabled={sending || !text.trim()} className="btn btn-primary px-3 py-2">
+          {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function TasksPage() {
   const navigate = useNavigate();
   const { globalSearchQuery, setGlobalSearchQuery } = useUIStore();
@@ -1346,6 +1441,12 @@ export default function TasksPage() {
   const [onlyMine, setOnlyMine] = useState(false);
 
   const [view, setView] = useState<'list' | 'calendar' | 'kanban' | 'agenda'>(() => (localStorage.getItem('kommo:tasks-view') as any) || 'list');
+  const [chatTarget, setChatTarget] = useState<{ contactId: string | null; leadId: string | null; name: string } | null>(null);
+  useEffect(() => {
+    const handler = (e: any) => setChatTarget(e.detail);
+    window.addEventListener('open-task-chat', handler as EventListener);
+    return () => window.removeEventListener('open-task-chat', handler as EventListener);
+  }, []);
   const [monthDate, setMonthDate] = useState(new Date());
 
   const [adding, setAdding] = useState(false);
@@ -1799,7 +1900,15 @@ export default function TasksPage() {
                           <button onClick={() => navigate(`/pipeline?leadId=${t.lead!.id}`)} className="flex items-center gap-1 text-xs hover:underline" style={{ color: 'var(--primary)' }}>
                             {t.lead.title} <ExternalLink size={11} />
                           </button>
-                          <button onClick={() => navigate(`/inbox?leadId=${t.lead!.id}`)} title="Abrir conversa" className="p-1 rounded hover:bg-slate-100">
+                          <button
+                            onClick={() => window.dispatchEvent(new CustomEvent('open-task-chat', { detail: {
+                              contactId: t.contact?.id || null,
+                              leadId: t.lead?.id || null,
+                              name: t.lead?.title || (t.contact ? `${t.contact.firstName} ${t.contact.lastName || ''}`.trim() : 'Conversa'),
+                            } }))}
+                            title="Abrir conversa"
+                            className="p-1 rounded hover:bg-slate-100"
+                          >
                             <MessageSquare size={12} style={{ color: 'var(--primary)' }} />
                           </button>
                         </div>
@@ -1850,6 +1959,9 @@ export default function TasksPage() {
       )}
       {importing && (
         <ImportTasksModal onClose={() => setImporting(false)} onImported={loadTasks} />
+      )}
+      {chatTarget && (
+        <TaskChatDrawer target={chatTarget} onClose={() => setChatTarget(null)} />
       )}
     </div>
   );
