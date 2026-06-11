@@ -132,25 +132,56 @@ Fornece: 1) Resumo do estado actual (2-3 frases) 2) Próximas acções recomenda
 // Sugere resposta para uma mensagem recebida
 router.post('/suggest-reply', async (req: AuthRequest, res: Response, next) => {
   try {
-    const { leadId, lastMessage, tone = 'profissional' } = req.body;
+    const { leadId, contactId, lastMessage, tone = 'profissional' } = req.body;
+    const workspaceId = req.user!.workspaceId;
 
     const apiKey = getAiKey();
 
-    const lead = await getLeadContext(leadId, req.user!.workspaceId);
+    const lead = leadId ? await getLeadContext(leadId, workspaceId) : null;
+
+    // Histórico completo da conversa (por contacto, ou por lead), até 30 mensagens
+    const histContactId = contactId || lead?.contact?.id || null;
+    let convMessages: Array<{ direction: string; content: string; type: string }> = [];
+    if (histContactId) {
+      convMessages = await prisma.message.findMany({
+        where: { contactId: histContactId, contact: { workspaceId } },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: { direction: true, content: true, type: true },
+      });
+    } else if (leadId) {
+      convMessages = await prisma.message.findMany({
+        where: { leadId, lead: { workspaceId } },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: { direction: true, content: true, type: true },
+      });
+    }
+
+    const history = convMessages
+      .reverse()
+      .map((m) => {
+        const who = m.direction === 'INBOUND' ? 'Cliente' : 'Nós';
+        const txt = (m.content || '').trim() || `[${(m.type || 'media').toLowerCase()}]`;
+        return `${who}: ${txt}`;
+      })
+      .join('\n');
 
     const context = lead
-      ? `Lead: ${lead.title}, Etapa: ${lead.stage.name}, Contacto: ${lead.contact?.firstName || 'Cliente'}`
+      ? `Lead: ${lead.title}\nEtapa: ${lead.stage.name}\nContacto: ${lead.contact?.firstName || 'Cliente'}`
       : 'Contexto do lead não disponível';
 
     const suggestions = await callGroq(
-      `Você é um assistente de vendas experiente. Sugere respostas para mensagens de clientes. Responde em Português de Moçambique. Tom: ${tone}.`,
+      `És um assistente de vendas experiente. Lês toda a conversa entre a nossa equipa ("Nós") e o cliente ("Cliente") e sugeres respostas coerentes com o que já foi dito. Responde em Português de Moçambique. Tom: ${tone}.`,
       `${context}
 
-Mensagem do cliente: "${lastMessage}"
+Conversa (da mais antiga para a mais recente):
+${history || '(sem histórico disponível)'}
+${lastMessage ? `\nÚltima mensagem do cliente a responder: "${lastMessage}"` : ''}
 
-Sugere 3 respostas diferentes para esta mensagem. Numera cada uma (1, 2, 3). Cada resposta deve ser directa, profissional e adequada ao contexto de vendas. Separa cada resposta com uma linha em branco.`,
+Com base em TODA a conversa acima, sugere 3 respostas diferentes para a última mensagem do cliente. Numera cada uma (1, 2, 3). Cada resposta deve ser directa, profissional, coerente com o histórico e adequada ao contexto de vendas. Separa cada resposta com uma linha em branco.`,
       apiKey,
-      600
+      700
     );
 
     // Parse into array

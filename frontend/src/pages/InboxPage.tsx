@@ -1197,7 +1197,7 @@ export default function InboxPage() {
     setAiLoading(true);
     try {
       const { data } = await api.post('/ai/suggest-reply', {
-        leadId: selected.leadId, lastMessage: lastInbound.content,
+        leadId: selected.leadId, contactId: (selected as any).contactId, lastMessage: lastInbound.content,
       });
       setAiSuggestions(data.suggestions || []);
     } catch (err: any) {
